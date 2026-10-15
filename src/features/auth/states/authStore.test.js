@@ -1,103 +1,62 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { useAuthStore, authStore } from "./authStore";
-import authApi from "../api/authApi";
-import apiHelper from "../../../helpers/apiHelper";
-import * as toolsHelper from "../../../helpers/toolsHelper";
+import { get } from "svelte/store";
+vi.mock("../api/authApi.js", () => ({ loginApi: vi.fn(), registerApi: vi.fn() }));
+vi.mock("../../users/api/userApi.js", () => ({ getMeApi: vi.fn() }));
+import { loginApi, registerApi } from "../api/authApi.js";
+import { getMeApi } from "../../users/api/userApi.js";
+import { getAccessToken, putAccessToken } from "../../../helpers/apiHelper.js";
+import { currentPath } from "../../../router.js";
+import { profile, isAuthenticated, loadProfile, login, register, logout } from "./authStore.js";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  localStorage.clear();
+  profile.set(null);
+});
 
 describe("authStore", () => {
-  beforeEach(() => {
-    authStore.reset();
-    vi.restoreAllMocks();
+  it("loadProfile tanpa token", async () => {
+    expect(await loadProfile()).toBeNull();
+    expect(getMeApi).not.toHaveBeenCalled();
   });
-
-  it("should have correct default state", () => {
-    const store = useAuthStore();
-    expect(store.isAuthLogin).toBe(false);
-    expect(store.isAuthRegister).toBe(false);
-    expect(store.isAuthLogout).toBe(false);
+  it("loadProfile gagal menghapus token", async () => {
+    putAccessToken("t");
+    getMeApi.mockResolvedValue({ ok: false });
+    expect(await loadProfile()).toBeNull();
+    expect(getAccessToken()).toBeNull();
   });
-
-  it("should update state with setters", () => {
-    const store = useAuthStore();
-    store.setIsAuthLogin(true);
-    expect(store.isAuthLogin).toBe(true);
-
-    store.setIsAuthRegister(true);
-    expect(store.isAuthRegister).toBe(true);
-
-    store.setIsAuthLogout(true);
-    expect(store.isAuthLogout).toBe(true);
+  it("loadProfile sukses", async () => {
+    putAccessToken("t");
+    getMeApi.mockResolvedValue({ ok: true, data: { user: { id: 1 } } });
+    expect(await loadProfile()).toEqual({ id: 1 });
+    expect(get(profile)).toEqual({ id: 1 });
+    expect(get(isAuthenticated)).toBe(true);
   });
-
-  describe("asyncSetIsAuthLogin", () => {
-    it("should set isAuthLogin to true and store token on success", async () => {
-      const store = useAuthStore();
-      vi.spyOn(authApi, "postLogin").mockResolvedValue({ token: "jwt-123" });
-      const putTokenSpy = vi.spyOn(apiHelper, "putAccessToken").mockImplementation(() => {});
-
-      await store.asyncSetIsAuthLogin("email@del.org", "password");
-
-      expect(putTokenSpy).toHaveBeenCalledWith("jwt-123");
-      expect(store.isAuthLogin).toBe(true);
-    });
-
-    it("should set isAuthLogin to false and show error on failure", async () => {
-      const store = useAuthStore();
-      vi.spyOn(authApi, "postLogin").mockRejectedValue(new Error("Login gagal"));
-      const errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
-
-      await store.asyncSetIsAuthLogin("email@del.org", "wrong");
-
-      expect(errorSpy).toHaveBeenCalledWith("Login gagal");
-      expect(store.isAuthLogin).toBe(false);
-    });
+  it("login sukses menyimpan token & memuat profil", async () => {
+    loginApi.mockResolvedValue({ ok: true, data: { token: "abc" } });
+    getMeApi.mockResolvedValue({ ok: true, data: { user: { id: 2 } } });
+    const r = await login("e", "p");
+    expect(r.ok).toBe(true);
+    expect(getAccessToken()).toBe("abc");
+    expect(get(profile)).toEqual({ id: 2 });
   });
-
-  describe("asyncSetIsAuthRegister", () => {
-    it("should set isAuthRegister to true and show success dialog on success", async () => {
-      const store = useAuthStore();
-      vi.spyOn(authApi, "postRegister").mockResolvedValue("Registrasi Berhasil");
-      const successSpy = vi.spyOn(toolsHelper, "showSuccessDialog").mockImplementation(() => {});
-
-      await store.asyncSetIsAuthRegister("Name", "name@del.org", "pass");
-
-      expect(successSpy).toHaveBeenCalledWith("Registrasi Berhasil");
-      expect(store.isAuthRegister).toBe(true);
-    });
-
-    it("should set isAuthRegister to false and show error dialog on failure", async () => {
-      const store = useAuthStore();
-      vi.spyOn(authApi, "postRegister").mockRejectedValue(new Error("Email sudah terdaftar"));
-      const errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
-
-      await store.asyncSetIsAuthRegister("Name", "name@del.org", "pass");
-
-      expect(errorSpy).toHaveBeenCalledWith("Email sudah terdaftar");
-      expect(store.isAuthRegister).toBe(false);
-    });
+  it("login gagal", async () => {
+    loginApi.mockResolvedValue({ ok: false, message: "salah" });
+    const r = await login("e", "p");
+    expect(r.ok).toBe(false);
+    expect(getAccessToken()).toBeNull();
   });
-
-  describe("asyncSetIsAuthLogout", () => {
-    it("should clear token and set isAuthLogout to true on success", async () => {
-      const store = useAuthStore();
-      vi.spyOn(authApi, "postLogout").mockResolvedValue("Berhasil logout");
-      const putTokenSpy = vi.spyOn(apiHelper, "putAccessToken").mockImplementation(() => {});
-
-      await store.asyncSetIsAuthLogout();
-
-      expect(putTokenSpy).toHaveBeenCalledWith("");
-      expect(store.isAuthLogout).toBe(true);
-    });
-
-    it("should still clear token and set isAuthLogout to true even if api throws error", async () => {
-      const store = useAuthStore();
-      vi.spyOn(authApi, "postLogout").mockRejectedValue(new Error("Network fail"));
-      const putTokenSpy = vi.spyOn(apiHelper, "putAccessToken").mockImplementation(() => {});
-
-      await store.asyncSetIsAuthLogout();
-
-      expect(putTokenSpy).toHaveBeenCalledWith("");
-      expect(store.isAuthLogout).toBe(true);
-    });
+  it("register", async () => {
+    registerApi.mockResolvedValue({ ok: true });
+    expect((await register("n", "e", "p")).ok).toBe(true);
+    expect(registerApi).toHaveBeenCalledWith("n", "e", "p");
+  });
+  it("logout", () => {
+    putAccessToken("t");
+    profile.set({ id: 1 });
+    logout();
+    expect(getAccessToken()).toBeNull();
+    expect(get(profile)).toBeNull();
+    expect(get(currentPath)).toBe("/auth/login");
   });
 });

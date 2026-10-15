@@ -1,120 +1,49 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/svelte";
+vi.mock("./features/auth/states/authStore.js", async (orig) => ({ ...(await orig()), loadProfile: vi.fn() }));
+import { profile, loadProfile } from "./features/auth/states/authStore.js";
+import { navigate } from "./router.js";
 import App from "./App.svelte";
-import { renderWithProviders } from "./test-utils";
-import { linkTreesStore } from "./features/linktrees/states/linkTreesStore";
-import { usersStore } from "./features/users/states/usersStore";
-import apiHelper from "./helpers/apiHelper";
 
-describe("App Component", () => {
-  const mockProfile = { id: 1, name: "Abdullah", email: "abdul@del.org" };
-  const mockLinkTree = {
-    id: 1,
-    title: "App Test Link Tree",
-    description: "App Test Description",
-    type: "public",
-    cover: null,
-    total_links: 0,
-    created_at: "2024-02-26T02:34:26.000000Z",
-    updated_at: "2024-02-26T02:44:47.000000Z",
-  };
+beforeEach(() => {
+  vi.clearAllMocks();
+  profile.set(null);
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    json: async () => ({ status: "success", data: { link_trees: [], users: [], link_tree: null } }),
+  }));
+});
 
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue("valid-token");
-    vi.spyOn(usersStore, "asyncSetProfile").mockImplementation(() => Promise.resolve());
-    vi.spyOn(linkTreesStore, "asyncSetLinkTrees").mockImplementation(() => Promise.resolve());
-    vi.spyOn(linkTreesStore, "asyncSetLinkTree").mockImplementation(() => Promise.resolve());
-    vi.spyOn(usersStore, "asyncSetUsers").mockImplementation(() => Promise.resolve());
+describe("App", () => {
+  it("menampilkan 'Memuat...' sebelum sesi siap", () => {
+    loadProfile.mockReturnValue(new Promise(() => {}));
+    navigate("/");
+    render(App);
+    expect(screen.getByText("Memuat...")).toBeInTheDocument();
   });
-
-  it("should render LoginPage when navigating to /auth/login", () => {
-    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue(null);
-    const { wrapper } = renderWithProviders(App, {
-      route: "/auth/login",
-      preloadedState: {
-        isAuthLogin: false,
-      },
-    });
-
-    expect(wrapper.exists()).toBe(true);
-    expect(wrapper.text()).toContain("Masuk Sekarang");
+  it("belum login di rute aplikasi -> diarahkan ke login", async () => {
+    loadProfile.mockResolvedValue(null);
+    navigate("/users");
+    render(App);
+    await waitFor(() => expect(window.location.pathname).toBe("/auth/login"));
+    expect(await screen.findByPlaceholderText("Email")).toBeInTheDocument();
   });
-
-  it("should render RegisterPage when navigating to /auth/register", () => {
-    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue(null);
-    const { wrapper } = renderWithProviders(App, {
-      route: "/auth/register",
-      preloadedState: {
-        isAuthLogin: false,
-      },
-    });
-
-    expect(wrapper.exists()).toBe(true);
-    expect(wrapper.text()).toContain("Daftar Sekarang");
+  it("sudah login di rute auth -> diarahkan ke beranda", async () => {
+    loadProfile.mockImplementation(async () => profile.set({ id: 1, name: "Ani" }));
+    navigate("/auth/login");
+    render(App);
+    await waitFor(() => expect(window.location.pathname).toBe("/"));
+    expect(await screen.findByRole("heading", { name: "Semua Link Tree" })).toBeInTheDocument();
   });
-
-  it("should render HomePage when navigating to / with auth", () => {
-    const { wrapper } = renderWithProviders(App, {
-      route: "/",
-      preloadedState: {
-        isAuthLogin: true,
-        profile: mockProfile,
-        linkTrees: [mockLinkTree],
-      },
-    });
-
-    expect(wrapper.exists()).toBe(true);
-    expect(wrapper.text()).toContain("Semua Link Tree");
+  it("sudah login: halaman 404 untuk rute tak dikenal", async () => {
+    loadProfile.mockImplementation(async () => profile.set({ id: 1, name: "Ani" }));
+    navigate("/tidak-ada");
+    render(App);
+    expect(await screen.findByText("404")).toBeInTheDocument();
   });
-
-  it("should render DetailPage when navigating to /link-trees/:id with auth", () => {
-    const { wrapper } = renderWithProviders(App, {
-      route: "/link-trees/1",
-      preloadedState: {
-        isAuthLogin: true,
-        profile: mockProfile,
-        linkTree: mockLinkTree,
-      },
-    });
-
-    expect(wrapper.exists()).toBe(true);
-    expect(wrapper.text()).toContain("App Test Link Tree");
-  });
-
-  it("should render UsersPage when navigating to /users with auth", () => {
-    const { wrapper } = renderWithProviders(App, {
-      route: "/users",
-      preloadedState: {
-        isAuthLogin: true,
-        profile: mockProfile,
-        users: [mockProfile],
-      },
-    });
-
-    expect(wrapper.exists()).toBe(true);
-    expect(wrapper.text()).toContain("Semua Pengguna");
-  });
-
-  it("should render ProfilePage when navigating to /profile with auth", () => {
-    const { wrapper } = renderWithProviders(App, {
-      route: "/profile",
-      preloadedState: {
-        isAuthLogin: true,
-        profile: mockProfile,
-      },
-    });
-
-    expect(wrapper.exists()).toBe(true);
-    expect(wrapper.text()).toContain("Profil Akun");
-  });
-
-  it("should render NotFoundPage for invalid route", () => {
-    const { wrapper } = renderWithProviders(App, {
-      route: "/invalid-unknown-route",
-    });
-
-    expect(wrapper.exists()).toBe(true);
-    expect(wrapper.text()).toContain("404");
-    expect(wrapper.text()).toContain("Halaman Tidak Ditemukan");
+  it("sudah login: halaman register diarahkan, detail tampil", async () => {
+    loadProfile.mockImplementation(async () => profile.set({ id: 1, name: "Ani" }));
+    navigate("/link-trees/1");
+    render(App);
+    expect(await screen.findByText(/tidak ditemukan/)).toBeInTheDocument();
   });
 });

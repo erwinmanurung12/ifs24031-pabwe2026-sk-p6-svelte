@@ -1,84 +1,21 @@
-import { writable, derived } from "svelte/store";
+import { writable } from "svelte/store";
 
 export const currentPath = writable(window.location.pathname);
 
-window.addEventListener("popstate", () => {
-  currentPath.set(window.location.pathname);
-});
-
-export function navigate(to, options = {}) {
-  if (options.replace) {
-    window.history.replaceState({}, "", to);
-  } else {
-    window.history.pushState({}, "", to);
-  }
-  currentPath.set(to);
+export function navigate(path, { replace = false } = {}) {
+  window.history[replace ? "replaceState" : "pushState"]({}, "", path);
+  currentPath.set(path);
 }
 
-export const router = {
-  push: (to) => navigate(to),
-  replace: (to) => navigate(to, { replace: true }),
-};
+window.addEventListener("popstate", () => currentPath.set(window.location.pathname));
 
-export const routes = [
-  { pattern: "/auth/login", name: "login", layout: "auth" },
-  { pattern: "/auth/register", name: "register", layout: "auth" },
-  { pattern: "/", name: "home", layout: "linktree" },
-  { pattern: "/users", name: "users", layout: "linktree" },
-  { pattern: "/profile", name: "profile", layout: "linktree" },
-  { pattern: "/link-trees/:linkTreeId", name: "link-tree-detail", layout: "linktree" },
-];
-
-export function matchPath(pattern, path) {
-  const cleanPath = path === "" ? "/" : path;
-  if (pattern === cleanPath) {
-    return { matches: true, params: {} };
-  }
-
-  const patternSegments = pattern.split("/").filter(Boolean);
-  const pathSegments = cleanPath.split("/").filter(Boolean);
-
-  if (patternSegments.length !== pathSegments.length) {
-    return null;
-  }
-
-  const params = {};
-  for (let i = 0; i < patternSegments.length; i++) {
-    const pSeg = patternSegments[i];
-    const aSeg = pathSegments[i];
-
-    if (pSeg.startsWith(":")) {
-      params[pSeg.slice(1)] = aSeg;
-    } else if (pSeg !== aSeg) {
-      return null;
-    }
-  }
-
-  return { matches: true, params };
+export function resolveRoute(path) {
+  if (path === "/auth/login") return { name: "login", layout: "auth", params: {} };
+  if (path === "/auth/register") return { name: "register", layout: "auth", params: {} };
+  if (path === "/") return { name: "home", layout: "app", params: {} };
+  if (path === "/users") return { name: "users", layout: "app", params: {} };
+  if (path === "/profile") return { name: "profile", layout: "app", params: {} };
+  const m = path.match(/^\/link-trees\/([^/]+)\/?$/);
+  if (m) return { name: "detail", layout: "app", params: { linkTreeId: m[1] } };
+  return { name: "notfound", layout: "app", params: {} };
 }
-
-export function resolveRoute(path, routesList = routes) {
-  const cleanPath = path === "" ? "/" : path;
-  for (const route of routesList) {
-    const match = matchPath(route.pattern, cleanPath);
-    if (match) {
-      return {
-        name: route.name,
-        path: cleanPath,
-        params: match.params,
-        layout: route.layout,
-      };
-    }
-  }
-
-  return {
-    name: "not-found",
-    path: cleanPath,
-    params: {},
-    layout: "none",
-  };
-}
-
-export const currentRoute = derived(currentPath, ($path) => resolveRoute($path));
-
-export default router;

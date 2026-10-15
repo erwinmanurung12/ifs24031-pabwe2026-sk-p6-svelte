@@ -1,235 +1,118 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { screen, fireEvent, waitFor } from "@testing-library/svelte";
+vi.mock("../states/linkTreesStore.js", async (orig) => ({ ...(await orig()), fetchLinkTree: vi.fn(), removeItem: vi.fn(), changeCover: vi.fn(), addItem: vi.fn() }));
+vi.mock("../../../helpers/toolsHelper.js", async (orig) => ({
+  ...(await orig()), showConfirmDialog: vi.fn(), showErrorDialog: vi.fn(),
+}));
+import { fetchLinkTree, removeItem, changeCover, addItem } from "../states/linkTreesStore.js";
+import { showConfirmDialog, showErrorDialog } from "../../../helpers/toolsHelper.js";
+import { linkTree } from "../states/linkTreesStore.js";
+import { tick } from "svelte";
+import { renderWithProviders } from "../../../test-utils.js";
 import DetailPage from "./DetailPage.svelte";
-import { renderWithProviders } from "../../../test-utils";
-import * as toolsHelper from "../../../helpers/toolsHelper";
-import * as router from "../../../router";
-import { linkTreesStore } from "../states/linkTreesStore";
 
-const wait = (ms = 10) => new Promise((r) => setTimeout(r, ms));
+const tree = {
+  id: 7, user_id: 1, title: "Tree", description: "Deskripsi", type: "public", cover: "http://x/c.png",
+  items: [{ id: 11, title: "GitHub", url: "https://github.com" }],
+};
+const render = (stores = {}) =>
+  renderWithProviders(DetailPage, { props: { params: { linkTreeId: "7" } }, stores: { profile: { id: 1 }, linkTree: tree, ...stores } });
 
 describe("DetailPage", () => {
-  const mockProfile = { id: 1, name: "Abdullah", email: "abdul@del.org" };
-  const mockLinkTree = {
-    id: 1,
-    title: "Kursus Ku",
-    type: "public",
-    description: "Kumpulan kursus",
-    cover: "https://example.com/cover.jpg",
-    created_at: "2024-02-26T02:34:26.000000Z",
-    updated_at: "2024-02-26T02:44:47.000000Z",
-    items: [
-      { id: 7, link_tree_id: 1, title: "Dasar Java", url: "https://youtu.be/abc" },
-      { id: 8, link_tree_id: 1, title: "Dasar Svelte", url: "https://svelte.dev" },
-    ],
-  };
+  beforeEach(() => vi.clearAllMocks());
 
-  let detailSpy;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    detailSpy = vi.spyOn(linkTreesStore, "asyncSetLinkTree").mockResolvedValue();
+  it("pemilik: detail, item, dan tombol aksi", () => {
+    render();
+    expect(fetchLinkTree).toHaveBeenCalledWith("7");
+    expect(screen.getByText("Tree")).toBeInTheDocument();
+    expect(screen.getByAltText("Tree")).toBeInTheDocument();
+    expect(screen.getByText("GitHub").closest("a")).toHaveAttribute("href", "https://github.com");
+    expect(screen.getByText("Sampul")).toBeInTheDocument();
   });
-
-  it("should render loading state if profile or link tree is missing", () => {
-    const noProfile = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: null, linkTree: null },
-    });
-    expect(noProfile.wrapper.text()).toContain("Memuat detail link tree...");
-
-    const noLinkTree = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: null },
-    });
-    expect(noLinkTree.wrapper.find("h1").exists()).toBe(false);
+  it("bukan pemilik: tanpa tombol aksi, tanpa cover, tanpa items", () => {
+    render({ profile: { id: 99 }, linkTree: { ...tree, cover: null, items: undefined } });
+    expect(screen.queryByText("Sampul")).toBeNull();
+    expect(screen.queryByAltText("Tree")).toBeNull();
+    expect(screen.getByText("Belum ada tautan.")).toBeInTheDocument();
   });
-
-  it("should not fetch on mount when linkTreeId is not provided", () => {
-    renderWithProviders(DetailPage, {
-      props: { linkTreeId: null },
-      preloadedState: { profile: mockProfile, linkTree: null },
-    });
-
-    expect(detailSpy).not.toHaveBeenCalled();
+  it("memuat & tidak ditemukan", () => {
+    const a = render({ loading: true });
+    expect(screen.getByText("Memuat...")).toBeInTheDocument();
+    a.unmount();
+    render({ linkTree: null });
+    expect(screen.getByText(/tidak ditemukan/)).toBeInTheDocument();
   });
-
-  it("should fetch detail on mount", () => {
-    renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
-    });
-
-    expect(detailSpy).toHaveBeenCalledWith(1);
+  it("membuka & menutup modal ubah, sampul, dan item", async () => {
+    render();
+    await fireEvent.click(screen.getByText("Ubah"));
+    expect(screen.getByText("Ubah Link Tree")).toBeInTheDocument();
+    await fireEvent.click(screen.getByText("Batal"));
+    await fireEvent.click(screen.getByText("Sampul"));
+    expect(screen.getByText("Ubah Sampul")).toBeInTheDocument();
+    await fireEvent.click(screen.getByText("Batal"));
+    await fireEvent.click(screen.getByText("Tambah"));
+    expect(screen.getByText("Tambah Tautan", { selector: "h2" })).toBeInTheDocument();
+    await fireEvent.click(screen.getByText("Batal"));
+    await fireEvent.click(screen.getByLabelText("Ubah GitHub"));
+    expect(screen.getByDisplayValue("GitHub")).toBeInTheDocument();
+    await fireEvent.click(screen.getByText("Batal"));
+    expect(screen.queryByDisplayValue("GitHub")).toBeNull();
   });
+  it("hapus item: batal, sukses, gagal", async () => {
+    render();
+    showConfirmDialog.mockResolvedValueOnce(false);
+    await fireEvent.click(screen.getByLabelText("Hapus GitHub"));
+    await waitFor(() => expect(showConfirmDialog).toHaveBeenCalled());
+    expect(removeItem).not.toHaveBeenCalled();
 
-  it("should render detail, cover and items with accessible names", () => {
-    const { wrapper } = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
-    });
+    showConfirmDialog.mockResolvedValueOnce(true);
+    removeItem.mockResolvedValueOnce({ ok: true });
+    await fireEvent.click(screen.getByLabelText("Hapus GitHub"));
+    await waitFor(() => expect(removeItem).toHaveBeenCalledWith(7, 11));
+    expect(showErrorDialog).not.toHaveBeenCalled();
 
-    expect(wrapper.find("h1").text()).toBe("Kursus Ku");
-    expect(wrapper.find("h2").text()).toBe("Daftar Tautan");
-    expect(wrapper.text()).toContain("Publik");
-    expect(wrapper.find("img").attributes("alt")).toBe("Sampul Kursus Ku");
-    expect(wrapper.find('[data-testid="link-tree-description"]').text()).toContain(
-      "Kumpulan kursus"
-    );
-    expect(wrapper.find('[data-testid="item-row-7"] a').attributes("href")).toBe(
-      "https://youtu.be/abc"
-    );
-    expect(wrapper.find('[data-testid="edit-item-7"]').attributes("aria-label")).toBe(
-      "Ubah tautan Dasar Java"
-    );
-    expect(wrapper.find('[data-testid="delete-item-7"]').attributes("aria-label")).toBe(
-      "Hapus tautan Dasar Java"
-    );
+    showConfirmDialog.mockResolvedValueOnce(true);
+    removeItem.mockResolvedValueOnce({ ok: false, message: "err" });
+    await fireEvent.click(screen.getByLabelText("Hapus GitHub"));
+    await waitFor(() => expect(showErrorDialog).toHaveBeenCalledWith("err"));
   });
-
-  it("should render without cover, with empty items and unknown type", () => {
-    const { wrapper } = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: {
-        profile: mockProfile,
-        linkTree: { ...mockLinkTree, cover: null, items: undefined, type: "weird" },
-      },
-    });
-
-    expect(wrapper.find("img").exists()).toBe(false);
-    expect(wrapper.find('[data-testid="empty-items"]').exists()).toBe(true);
+  it("bukan pemilik: item tampil tanpa tombol ubah/hapus", () => {
+    render({ profile: { id: 99 } });
+    expect(screen.getByText("GitHub")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Ubah GitHub")).toBeNull();
+    expect(screen.queryByLabelText("Hapus GitHub")).toBeNull();
   });
-
-  it("should navigate back to home when the back link is clicked", async () => {
-    const navSpy = vi.spyOn(router, "navigate").mockImplementation(() => {});
-    const { wrapper } = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
-    });
-
-    await wrapper.find('[data-testid="back-to-link-trees-link"]').trigger("click");
-
-    expect(navSpy).toHaveBeenCalledWith("/");
+  it("tanpa profil dianggap bukan pemilik", () => {
+    render({ profile: null });
+    expect(screen.queryByText("Sampul")).toBeNull();
   });
-
-  it("should open and close the cover modal", async () => {
-    const { wrapper } = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
-    });
-
-    await wrapper.find('[data-testid="edit-cover-btn"]').trigger("click");
-    expect(wrapper.find('[data-testid="change-cover-modal"]').exists()).toBe(true);
-
-    await wrapper.find('[data-testid="close-cover-modal-btn"]').trigger("click");
-    expect(wrapper.find('[data-testid="change-cover-modal"]').exists()).toBe(false);
+  it("memperbarui item saat store berubah", async () => {
+    render();
+    const item = tree.items[0];
+    linkTree.set({ ...tree, items: [{ ...item, url: "https://baru.com" }] });
+    await tick();
+    expect(screen.getByText("GitHub").closest("a")).toHaveAttribute("href", "https://baru.com");
+    linkTree.set({ ...tree, items: [{ ...item, url: "https://baru.com", title: "GL" }] });
+    await tick();
+    expect(screen.getByLabelText("Ubah GL")).toBeInTheDocument();
   });
+  it("submit dari modal sampul dan item membaca data link tree", async () => {
+    changeCover.mockResolvedValue({ ok: true });
+    addItem.mockResolvedValue({ ok: true });
+    const { container } = render();
+    await fireEvent.click(screen.getByText("Sampul"));
+    const file = new File(["x"], "c.png");
+    await fireEvent.change(container.querySelector("input[type=file]"), { target: { files: [file] } });
+    await fireEvent.submit(container.querySelector("form"));
+    await waitFor(() => expect(changeCover).toHaveBeenCalledWith(7, file));
+    await waitFor(() => expect(screen.queryByText("Ubah Sampul")).toBeNull());
 
-  it("should open and close the change modal", async () => {
-    const { wrapper } = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
-    });
-
-    await wrapper.find('[data-testid="edit-detail-btn"]').trigger("click");
-    expect(wrapper.find('[data-testid="change-link-tree-modal"]').exists()).toBe(true);
-
-    await wrapper.find('[data-testid="close-change-modal-btn"]').trigger("click");
-    expect(wrapper.find('[data-testid="change-link-tree-modal"]').exists()).toBe(false);
+    await fireEvent.click(screen.getByText("Tambah"));
+    await fireEvent.submit(screen.getByPlaceholderText("Judul tautan").closest("form"));
+    await waitFor(() => expect(addItem).toHaveBeenCalledWith(7, { title: "", url: "" }));
   });
-
-  it("should open the item modal in add and edit mode and close it", async () => {
-    const { wrapper } = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
-    });
-
-    await wrapper.find('[data-testid="add-item-btn"]').trigger("click");
-    expect(wrapper.find('[data-testid="item-modal"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="item-title-input"]').element.value).toBe("");
-
-    await wrapper.find('[data-testid="close-item-modal-btn"]').trigger("click");
-    expect(wrapper.find('[data-testid="item-modal"]').exists()).toBe(false);
-
-    await wrapper.find('[data-testid="edit-item-8"]').trigger("click");
-    expect(wrapper.find('[data-testid="item-title-input"]').element.value).toBe("Dasar Svelte");
-  });
-
-  it("should delete an item only when confirmed", async () => {
-    const deleteSpy = vi
-      .spyOn(linkTreesStore, "asyncSetIsLinkTreeItemDelete")
-      .mockResolvedValue();
-    const confirmSpy = vi.spyOn(toolsHelper, "showConfirmDialog");
-    const { wrapper } = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
-    });
-
-    confirmSpy.mockResolvedValue({ isConfirmed: false });
-    await wrapper.find('[data-testid="delete-item-7"]').trigger("click");
-    await wait();
-    expect(deleteSpy).not.toHaveBeenCalled();
-
-    confirmSpy.mockResolvedValue({ isConfirmed: true });
-    await wrapper.find('[data-testid="delete-item-7"]').trigger("click");
-    await wait();
-    expect(deleteSpy).toHaveBeenCalledWith(1, 7);
-  });
-
-  it("should reload detail only when item deletion succeeded", async () => {
-    const { linkTreesStore: store } = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
-    });
-    detailSpy.mockClear();
-
-    store.setIsLinkTreeItemDeleted(false);
-    store.setIsLinkTreeItemDelete(true);
-    await wait();
-    expect(detailSpy).not.toHaveBeenCalled();
-
-    store.setIsLinkTreeItemDeleted(true);
-    store.setIsLinkTreeItemDelete(true);
-    await wait();
-    expect(detailSpy).toHaveBeenCalledWith(1);
-  });
-
-  it("should navigate home if isLinkTree is flagged and link tree is null", async () => {
-    const navSpy = vi.spyOn(router, "navigate").mockImplementation(() => {});
-    const { linkTreesStore: store } = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: null, isLinkTree: false },
-    });
-
-    store.setIsLinkTree(true);
-    await wait();
-
-    expect(navSpy).toHaveBeenCalledWith("/");
-  });
-
-  it("should stay when isLinkTree is flagged and link tree exists", async () => {
-    const navSpy = vi.spyOn(router, "navigate").mockImplementation(() => {});
-    const { wrapper, linkTreesStore: store } = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: mockLinkTree, isLinkTree: false },
-    });
-
-    navSpy.mockClear();
-    store.setIsLinkTree(true);
-    await wait();
-
-    expect(wrapper.text()).toContain("Kursus Ku");
-    expect(navSpy).not.toHaveBeenCalled();
-  });
-
-  it("should fetch again when linkTreeId changes", async () => {
-    const { rerender } = renderWithProviders(DetailPage, {
-      props: { linkTreeId: 1 },
-      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
-    });
-
-    await rerender({ linkTreeId: 2 });
-    await wait();
-
-    expect(detailSpy).toHaveBeenCalledWith(2);
+  it("item tanpa judul tetap dirender", () => {
+    render({ linkTree: { ...tree, items: [{ id: 12, url: "https://x.com" }] } });
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
 });

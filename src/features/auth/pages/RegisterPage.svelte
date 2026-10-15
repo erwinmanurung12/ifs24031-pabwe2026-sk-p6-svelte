@@ -1,148 +1,43 @@
 <script>
-  import { User, Mail, Lock, LoaderCircle, UserPlus } from "lucide-svelte";
-  import { authStore } from "../states/authStore";
-  import { showErrorDialog } from "../../../helpers/toolsHelper";
+  import { useInput } from "../../../hooks/useInput.js";
+  import { register } from "../states/authStore.js";
   import { navigate } from "../../../router.js";
+  import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper.js";
+  import Link from "../../common/components/Link.svelte";
 
-  let name = "";
-  let email = "";
-  let password = "";
-  let passwordConfirmation = "";
-  let loading = false;
+  const { value: name } = useInput();
+  const { value: email } = useInput();
+  const { value: password } = useInput();
+  let busy = $state(false);
 
-  $: if ($authStore.isAuthRegister === true) {
-    loading = false;
-    authStore.setIsAuthRegister(false);
-    navigate("/auth/login");
-  }
-
-  async function onSubmitHandler() {
-    if (!name.trim()) {
-      showErrorDialog("Nama lengkap wajib diisi!");
-      return;
-    }
-    if (!email.trim()) {
-      showErrorDialog("Email wajib diisi!");
-      return;
-    }
-    if (!password) {
-      showErrorDialog("Kata sandi wajib diisi!");
-      return;
-    }
-    if (password !== passwordConfirmation) {
-      showErrorDialog("Konfirmasi kata sandi tidak cocok!");
-      return;
-    }
-
-    loading = true;
-    try {
-      await authStore.asyncSetIsAuthRegister(name.trim(), email.trim(), password);
-    } finally {
-      loading = false;
-    }
+  async function submit(e) {
+    e.preventDefault();
+    busy = true;
+    const r = await register($name, $email, $password);
+    busy = false;
+    if (r.ok) {
+      await showSuccessDialog("Akun dibuat, silakan masuk.");
+      navigate("/auth/login");
+    } else showErrorDialog(r.message);
   }
 </script>
 
-<form on:submit|preventDefault={onSubmitHandler} class="space-y-4">
+<form onsubmit={submit} class="space-y-4">
+  <h2 class="text-xl font-bold text-center">Daftar</h2>
   <div>
-    <label for="register-name-input" class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-      Nama Lengkap
-    </label>
-    <div class="relative">
-      <User
-        size={18}
-        class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-      />
-      <input
-        type="text"
-        id="register-name-input"
-        data-testid="register-name-input"
-        bind:value={name}
-        placeholder="Nama Lengkap"
-        class="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
-        required
-      />
-    </div>
+    <label for="register-name-input" class="block text-sm font-medium text-slate-700 mb-1">Nama</label>
+    <input id="register-name-input" name="name" autocomplete="name" placeholder="Nama" required bind:value={$name} class="w-full border rounded-lg px-3 py-2" />
   </div>
-
   <div>
-    <label for="register-email-input" class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-      Alamat Email
-    </label>
-    <div class="relative">
-      <Mail
-        size={18}
-        class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-      />
-      <input
-        type="email"
-        id="register-email-input"
-        data-testid="register-email-input"
-        bind:value={email}
-        placeholder="nama@email.com"
-        class="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
-        required
-      />
-    </div>
+    <label for="register-email-input" class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+    <input id="register-email-input" name="email" type="email" autocomplete="email" placeholder="Email" required bind:value={$email} class="w-full border rounded-lg px-3 py-2" />
   </div>
-
   <div>
-    <label for="register-password-input" class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-      Kata Sandi
-    </label>
-    <div class="relative">
-      <Lock
-        size={18}
-        class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-      />
-      <input
-        type="password"
-        id="register-password-input"
-        data-testid="register-password-input"
-        bind:value={password}
-        placeholder="••••••••"
-        class="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
-        required
-      />
-    </div>
+    <label for="register-password-input" class="block text-sm font-medium text-slate-700 mb-1">Kata sandi</label>
+    <input id="register-password-input" name="password" type="password" autocomplete="new-password" placeholder="Kata sandi" required bind:value={$password} class="w-full border rounded-lg px-3 py-2" />
   </div>
-
-  <div>
-    <label for="register-password-confirm-input" class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-      Konfirmasi Kata Sandi
-    </label>
-    <div class="relative">
-      <Lock
-        size={18}
-        class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-      />
-      <input
-        type="password"
-        id="register-password-confirm-input"
-        data-testid="register-password-confirm-input"
-        bind:value={passwordConfirmation}
-        placeholder="••••••••"
-        class="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
-        required
-      />
-    </div>
-  </div>
-
-  <div class="pt-2">
-    <button
-      type="submit"
-      id="register-submit-button"
-      data-testid="register-submit-button"
-      disabled={loading}
-      class="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-xl shadow-md shadow-indigo-600/25 transition-all disabled:opacity-60"
-    >
-      {#if loading}
-        <LoaderCircle size={18} class="animate-spin" />
-        <span>Sedang Mendaftar...</span>
-      {:else}
-        <UserPlus size={18} strokeWidth={2.5} />
-        <span>Daftar Sekarang</span>
-      {/if}
-    </button>
-  </div>
+  <button id="register-submit-button" type="submit" disabled={busy} class="w-full bg-indigo-600 text-white rounded-lg py-2 font-semibold">
+    {busy ? "Memproses..." : "Daftar"}
+  </button>
+  <p class="text-sm text-center">Sudah punya akun? <Link href="/auth/login" class="text-indigo-600 font-semibold">Masuk</Link></p>
 </form>

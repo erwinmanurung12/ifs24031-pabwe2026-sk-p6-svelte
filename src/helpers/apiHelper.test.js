@@ -1,54 +1,27 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import apiHelper from "./apiHelper";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { apiFetch, getAccessToken, putAccessToken, removeAccessToken } from "./apiHelper.js";
+
+beforeEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 
 describe("apiHelper", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    vi.restoreAllMocks();
+  it("token", () => {
+    putAccessToken("t");
+    expect(getAccessToken()).toBe("t");
+    removeAccessToken();
+    expect(getAccessToken()).toBeNull();
   });
-
-  it("should get and set access token correctly", () => {
-    expect(apiHelper.getAccessToken()).toBeNull();
-    apiHelper.putAccessToken("dummy-token");
-    expect(apiHelper.getAccessToken()).toBe("dummy-token");
-    apiHelper.putAccessToken("");
-    expect(apiHelper.getAccessToken()).toBeNull();
+  it("sukses + header Authorization", async () => {
+    putAccessToken("t");
+    const f = vi.fn().mockResolvedValue({ json: async () => ({ status: "success", data: { a: 1 } }) });
+    vi.stubGlobal("fetch", f);
+    const r = await apiFetch("/x", { method: "POST", body: { a: 1 } });
+    expect(r.ok).toBe(true);
+    expect(f.mock.calls[0][1].headers.Authorization).toBe("Bearer t");
   });
-
-  it("should fetch data without query and append Authorization header when token exists", async () => {
-    apiHelper.putAccessToken("test-token");
-    const mockFetch = vi.fn().mockResolvedValue({ status: 200 });
-    global.fetch = mockFetch;
-
-    await apiHelper.fetchData("http://localhost:8765/api/v1/users/", {
-      method: "GET",
-    });
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      "http://localhost:8765/api/v1/users",
-      expect.objectContaining({
-        method: "GET",
-        headers: {
-          Authorization: "Bearer test-token",
-        },
-      })
-    );
-  });
-
-  it("should handle url with query parameters and without trailing slash correctly", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ status: 200 });
-    global.fetch = mockFetch;
-
-    await apiHelper.fetchData("https://open-api.delcom.org/api/v1/link-trees?is_me=1", {
-      method: "GET",
-    });
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://open-api.delcom.org/api/v1/link-trees?is_me=1",
-      expect.objectContaining({
-        method: "GET",
-        headers: {},
-      })
-    );
+  it("form data & gagal jaringan", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ json: async () => ({ status: "fail", message: "m" }) }));
+    expect((await apiFetch("/x", { form: new FormData() })).ok).toBe(false);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("x")));
+    expect((await apiFetch("/x")).message).toMatch(/Gagal/);
   });
 });

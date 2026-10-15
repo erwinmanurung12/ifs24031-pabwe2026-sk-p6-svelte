@@ -1,80 +1,40 @@
-import { writable } from "svelte/store";
-import authApi from "../api/authApi";
-import apiHelper from "../../../helpers/apiHelper";
-import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
+import { writable, derived } from "svelte/store";
+import { loginApi, registerApi } from "../api/authApi.js";
+import { getMeApi } from "../../users/api/userApi.js";
+import { putAccessToken, removeAccessToken, getAccessToken } from "../../../helpers/apiHelper.js";
+import { navigate } from "../../../router.js";
 
-function createAuthStore() {
-  const initial = {
-    isAuthLogin: false,
-    isAuthRegister: false,
-    isAuthLogout: false,
-  };
+export const profile = writable(null);
+export const isAuthenticated = derived(profile, ($p) => !!$p);
 
-  let currentState = { ...initial };
-  const innerStore = writable(currentState);
-  innerStore.subscribe((val) => {
-    currentState = val;
-  });
-
-  return {
-    subscribe: innerStore.subscribe,
-    get isAuthLogin() {
-      return currentState.isAuthLogin;
-    },
-    get isAuthRegister() {
-      return currentState.isAuthRegister;
-    },
-    get isAuthLogout() {
-      return currentState.isAuthLogout;
-    },
-    get $state() {
-      return currentState;
-    },
-    reset(state = initial) {
-      innerStore.set({ ...initial, ...state });
-    },
-    setIsAuthLogin(value) {
-      innerStore.update((s) => ({ ...s, isAuthLogin: value }));
-    },
-    setIsAuthRegister(value) {
-      innerStore.update((s) => ({ ...s, isAuthRegister: value }));
-    },
-    setIsAuthLogout(value) {
-      innerStore.update((s) => ({ ...s, isAuthLogout: value }));
-    },
-    async asyncSetIsAuthLogin(email, password) {
-      try {
-        const data = await authApi.postLogin(email, password);
-        apiHelper.putAccessToken(data.token);
-        this.setIsAuthLogin(true);
-      } catch (error) {
-        this.setIsAuthLogin(false);
-        showErrorDialog(error.message);
-      }
-    },
-    async asyncSetIsAuthRegister(name, email, password) {
-      try {
-        const message = await authApi.postRegister(name, email, password);
-        this.setIsAuthRegister(true);
-        showSuccessDialog(message);
-      } catch (error) {
-        this.setIsAuthRegister(false);
-        showErrorDialog(error.message);
-      }
-    },
-    async asyncSetIsAuthLogout() {
-      try {
-        await authApi.postLogout();
-      } catch {
-        // Still proceed with clearing token locally even if server error
-      } finally {
-        apiHelper.putAccessToken("");
-        this.setIsAuthLogout(true);
-      }
-    },
-  };
+export async function loadProfile() {
+  if (!getAccessToken()) {
+    profile.set(null);
+    return null;
+  }
+  const r = await getMeApi();
+  if (!r.ok) {
+    removeAccessToken();
+    profile.set(null);
+    return null;
+  }
+  profile.set(r.data.user);
+  return r.data.user;
 }
 
-export const authStore = createAuthStore();
-export const useAuthStore = () => authStore;
-export default authStore;
+export async function login(email, password) {
+  const r = await loginApi(email, password);
+  if (r.ok) {
+    putAccessToken(r.data.token);
+    await loadProfile();
+  }
+  return r;
+}
+
+export const register = (name, email, password) => registerApi(name, email, password);
+
+export function logout() {
+  removeAccessToken();
+  profile.set(null);
+  navigate("/auth/login", { replace: true });
+}

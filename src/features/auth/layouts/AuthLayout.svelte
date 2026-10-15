@@ -1,60 +1,15 @@
 <script>
-  import { onMount } from "svelte";
-  import { Link } from "lucide-svelte";
-  import { usersStore } from "../../users/states/usersStore";
-  import apiHelper from "../../../helpers/apiHelper";
-  import { currentPath, navigate } from "../../../router.js";
-
-  $: isLoginActive = $currentPath === "/auth/login";
-
-  onMount(() => {
-    const authToken = apiHelper.getAccessToken();
-    if (authToken) {
-      usersStore.asyncSetProfile();
-    }
-  });
-
-  $: if ($usersStore.isProfile) {
-    usersStore.setIsProfile(false);
-    if ($usersStore.profile) {
-      navigate("/");
-    }
-  }
+  import { Link2 } from "lucide-svelte";
+  let { children } = $props();
 </script>
 
-<div class="min-h-screen bg-slate-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-  <div class="sm:mx-auto sm:w-full sm:max-w-md text-center">
-    <div class="inline-flex w-14 h-14 rounded-2xl bg-indigo-600 items-center justify-center text-white shadow-xl shadow-indigo-500/25 mb-3">
-      <Link size={32} strokeWidth={2.5} />
+<main class="min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-md bg-white rounded-2xl shadow p-8">
+    <div class="flex flex-col items-center text-center mb-6">
+      <Link2 class="w-10 h-10 text-indigo-600" />
+      <h1 class="text-2xl font-extrabold mt-2">Delcom Link Tree</h1>
+      <p class="text-sm text-slate-600">Kumpulkan dan bagikan semua tautan pentingmu dalam satu tempat.</p>
     </div>
-    <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">
-      Delcom Link Tree
-    </h1>
-    <p class="mt-1 text-sm text-slate-700">
-      Kelola dan bagikan kumpulan tautan Anda dalam satu halaman.
-    </p>
+    {@render children()}
   </div>
-
-  <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
-    <div class="bg-white py-8 px-6 sm:px-10 shadow-xl shadow-slate-200/50 rounded-3xl border border-slate-200">
-      <div class="flex rounded-2xl bg-slate-100 p-1 mb-6">
-        <button
-          type="button"
-          on:click={() => navigate("/auth/login")}
-          class="flex-1 py-2 text-center text-sm font-semibold rounded-xl transition-all {isLoginActive ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-700 hover:text-slate-900'}"
-        >
-          Masuk Akun
-        </button>
-        <button
-          type="button"
-          on:click={() => navigate("/auth/register")}
-          class="flex-1 py-2 text-center text-sm font-semibold rounded-xl transition-all {!isLoginActive ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-700 hover:text-slate-900'}"
-        >
-          Daftar Baru
-        </button>
-      </div>
-
-      <slot />
-    </div>
-  </div>
-</div>
+</main>
