@@ -1,110 +1,208 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { get } from "svelte/store";
+import { useUsersStore, usersStore } from "./usersStore";
+import userApi from "../api/userApi";
+import * as toolsHelper from "../../../helpers/toolsHelper";
 
-vi.mock("../api/userApi.js", () => ({
-  userApi: {
-    getAll: vi.fn(),
-    getMe: vi.fn(),
-    updateMe: vi.fn(),
-    updatePhoto: vi.fn(),
-    changePassword: vi.fn(),
-  },
-}));
-vi.mock("../../auth/api/authApi.js", () => ({ authApi: {} }));
-
-import { userApi } from "../api/userApi.js";
-import { profile } from "../../auth/states/authStore.js";
-import * as store from "./usersStore.js";
-
-const me = { id: 1, name: "Baru", email: "b@c.d" };
-
-beforeEach(() => {
-  vi.resetAllMocks();
-  store.resetUsersState();
-  profile.set(null);
-});
-
-describe("fetchUsers", () => {
-  it("mengisi daftar pengguna", async () => {
-    userApi.getAll.mockResolvedValue({ data: { users: [{ id: 1 }, { id: 2 }] } });
-    await store.fetchUsers();
-    expect(get(store.users)).toHaveLength(2);
-    expect(get(store.usersError)).toBeNull();
-    expect(get(store.usersLoading)).toBe(false);
+describe("usersStore", () => {
+  beforeEach(() => {
+    usersStore.reset();
+    vi.restoreAllMocks();
   });
 
-  it("memakai array kosong bila kunci users tidak ada", async () => {
-    userApi.getAll.mockResolvedValue({});
-    await store.fetchUsers();
-    expect(get(store.users)).toEqual([]);
+  it("should have correct default state", () => {
+    const store = useUsersStore();
+    expect(store.users).toEqual([]);
+    expect(store.user).toBeNull();
+    expect(store.profile).toBeNull();
+    expect(store.isProfile).toBe(false);
+    expect(store.isChangeProfile).toBe(false);
+    expect(store.isChangeProfilePhoto).toBe(false);
+    expect(store.isChangeProfilePassword).toBe(false);
   });
 
-  it("menyimpan pesan error bila gagal", async () => {
-    userApi.getAll.mockRejectedValue(new Error("gagal"));
-    await store.fetchUsers();
-    expect(get(store.usersError)).toBe("gagal");
-    expect(get(store.users)).toEqual([]);
-  });
-});
+  it("should update state with setters", () => {
+    const store = useUsersStore();
+    store.setUsers([{ id: 1 }]);
+    expect(store.users).toEqual([{ id: 1 }]);
 
-describe("resetUsersState", () => {
-  it("mengosongkan state", () => {
-    store.users.set([{ id: 1 }]);
-    store.usersError.set("x");
-    store.resetUsersState();
-    expect(get(store.users)).toEqual([]);
-    expect(get(store.usersError)).toBeNull();
-  });
-});
+    store.setUser({ id: 2 });
+    expect(store.user).toEqual({ id: 2 });
 
-describe("updateProfile", () => {
-  it("memuat ulang profil setelah sukses", async () => {
-    userApi.updateMe.mockResolvedValue({ message: "Berhasil mengubah data" });
-    userApi.getMe.mockResolvedValue({ data: { user: me } });
-    const result = await store.updateProfile({ name: "Baru", email: "b@c.d" });
-    expect(result.ok).toBe(true);
-    expect(get(profile)).toEqual(me);
-    expect(get(store.isUpdatingProfile)).toBe(false);
+    store.setProfile({ id: 3 });
+    expect(store.profile).toEqual({ id: 3 });
+
+    store.setIsProfile(true);
+    expect(store.isProfile).toBe(true);
+
+    store.setIsChangeProfile(true);
+    expect(store.isChangeProfile).toBe(true);
+
+    store.setIsChangeProfilePhoto(true);
+    expect(store.isChangeProfilePhoto).toBe(true);
+
+    store.setIsChangeProfilePassword(true);
+    expect(store.isChangeProfilePassword).toBe(true);
   });
 
-  it("tidak memuat ulang profil bila gagal", async () => {
-    userApi.updateMe.mockRejectedValue(new Error("gagal"));
-    const result = await store.updateProfile({});
-    expect(result.ok).toBe(false);
-    expect(userApi.getMe).not.toHaveBeenCalled();
-  });
-});
+  describe("asyncSetUsers", () => {
+    it("should set users on success", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "getUsers").mockResolvedValue([{ id: 1 }]);
 
-describe("uploadPhoto", () => {
-  it("memuat ulang profil setelah sukses", async () => {
-    userApi.updatePhoto.mockResolvedValue({ message: "ok" });
-    userApi.getMe.mockResolvedValue({ data: { user: me } });
-    const file = new File(["x"], "p.png");
-    const result = await store.uploadPhoto(file);
-    expect(result.ok).toBe(true);
-    expect(userApi.updatePhoto).toHaveBeenCalledWith(file);
-    expect(get(profile)).toEqual(me);
-  });
+      await store.asyncSetUsers();
 
-  it("gagal tanpa memuat ulang profil", async () => {
-    userApi.updatePhoto.mockRejectedValue(new Error("gagal"));
-    const result = await store.uploadPhoto(new File(["x"], "p.png"));
-    expect(result.ok).toBe(false);
-    expect(userApi.getMe).not.toHaveBeenCalled();
-    expect(get(store.isUploadingPhoto)).toBe(false);
-  });
-});
+      expect(store.users).toEqual([{ id: 1 }]);
+    });
 
-describe("changePassword", () => {
-  it("sukses", async () => {
-    userApi.changePassword.mockResolvedValue({ message: "Berhasil mengubah kata sandi" });
-    const result = await store.changePassword({ password: "a" });
-    expect(result).toMatchObject({ ok: true, message: "Berhasil mengubah kata sandi" });
-    expect(get(store.isChangingPassword)).toBe(false);
+    it("should set empty array on error", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "getUsers").mockRejectedValue(new Error("Error"));
+
+      await store.asyncSetUsers();
+
+      expect(store.users).toEqual([]);
+    });
   });
 
-  it("gagal", async () => {
-    userApi.changePassword.mockRejectedValue(new Error("salah"));
-    expect((await store.changePassword({})).ok).toBe(false);
+  describe("asyncSetUserById", () => {
+    it("should set user on success", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "getUserById").mockResolvedValue({ id: 2 });
+
+      await store.asyncSetUserById(2);
+
+      expect(store.user).toEqual({ id: 2 });
+    });
+
+    it("should set null on error", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "getUserById").mockRejectedValue(new Error("Error"));
+
+      await store.asyncSetUserById(99);
+
+      expect(store.user).toBeNull();
+    });
+  });
+
+  describe("asyncSetProfile", () => {
+    it("should set profile and setIsProfile to true on success", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "getProfile").mockResolvedValue({ id: 3 });
+
+      await store.asyncSetProfile();
+
+      expect(store.profile).toEqual({ id: 3 });
+      expect(store.isProfile).toBe(true);
+    });
+
+    it("should set profile null and setIsProfile to true on error", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "getProfile").mockRejectedValue(new Error("Failed"));
+
+      await store.asyncSetProfile();
+
+      expect(store.profile).toBeNull();
+      expect(store.isProfile).toBe(true);
+    });
+  });
+
+  describe("asyncPutProfile", () => {
+    it("should update profile, show success, and set isChangeProfile to true", async () => {
+      const store = useUsersStore();
+      const updated = { id: 1, name: "New Name", email: "new@del.org" };
+      vi.spyOn(userApi, "putProfile").mockResolvedValue(updated);
+      const successSpy = vi.spyOn(toolsHelper, "showSuccessDialog").mockImplementation(() => {});
+
+      await store.asyncPutProfile("New Name", "new@del.org");
+
+      expect(store.profile).toEqual(updated);
+      expect(successSpy).toHaveBeenCalledWith("Profil berhasil diperbarui!");
+      expect(store.isChangeProfile).toBe(true);
+    });
+
+    it("should show error dialog and set isChangeProfile to false on error", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "putProfile").mockRejectedValue(new Error("Gagal update"));
+      const errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
+
+      await store.asyncPutProfile("New Name", "new@del.org");
+
+      expect(errorSpy).toHaveBeenCalledWith("Gagal update");
+      expect(store.isChangeProfile).toBe(false);
+    });
+  });
+
+  describe("asyncPostProfilePhoto", () => {
+    it("should upload photo, refresh profile, and show success dialog", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "postProfilePhoto").mockResolvedValue("Foto profil diubah");
+      vi.spyOn(userApi, "getProfile").mockResolvedValue({ id: 1, photo: "new.jpg" });
+      const successSpy = vi.spyOn(toolsHelper, "showSuccessDialog").mockImplementation(() => {});
+
+      const dummyFile = new File([""], "test.png");
+      await store.asyncPostProfilePhoto(dummyFile);
+
+      expect(successSpy).toHaveBeenCalledWith("Foto profil diubah");
+      expect(store.profile).toEqual({ id: 1, photo: "new.jpg" });
+      expect(store.isChangeProfilePhoto).toBe(true);
+    });
+
+    it("should use fallback message in success dialog if message empty", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "postProfilePhoto").mockResolvedValue("");
+      vi.spyOn(userApi, "getProfile").mockResolvedValue({ id: 1 });
+      const successSpy = vi.spyOn(toolsHelper, "showSuccessDialog").mockImplementation(() => {});
+
+      const dummyFile = new File([""], "test.png");
+      await store.asyncPostProfilePhoto(dummyFile);
+
+      expect(successSpy).toHaveBeenCalledWith("Foto profil berhasil diperbarui!");
+    });
+
+    it("should show error dialog and set isChangeProfilePhoto to false on failure", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "postProfilePhoto").mockRejectedValue(new Error("File terlalu besar"));
+      const errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
+
+      const dummyFile = new File([""], "test.png");
+      await store.asyncPostProfilePhoto(dummyFile);
+
+      expect(errorSpy).toHaveBeenCalledWith("File terlalu besar");
+      expect(store.isChangeProfilePhoto).toBe(false);
+    });
+  });
+
+  describe("asyncPutProfilePassword", () => {
+    it("should update password, show success dialog, and set isChangeProfilePassword to true", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "putProfilePassword").mockResolvedValue("Password diubah");
+      const successSpy = vi.spyOn(toolsHelper, "showSuccessDialog").mockImplementation(() => {});
+
+      await store.asyncPutProfilePassword("old", "new", "new");
+
+      expect(successSpy).toHaveBeenCalledWith("Password diubah");
+      expect(store.isChangeProfilePassword).toBe(true);
+    });
+
+    it("should use fallback message if server message empty", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "putProfilePassword").mockResolvedValue("");
+      const successSpy = vi.spyOn(toolsHelper, "showSuccessDialog").mockImplementation(() => {});
+
+      await store.asyncPutProfilePassword("old", "new", "new");
+
+      expect(successSpy).toHaveBeenCalledWith("Kata sandi berhasil diperbarui!");
+    });
+
+    it("should show error dialog and set isChangeProfilePassword to false on failure", async () => {
+      const store = useUsersStore();
+      vi.spyOn(userApi, "putProfilePassword").mockRejectedValue(new Error("Password salah"));
+      const errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
+
+      await store.asyncPutProfilePassword("old", "new", "new");
+
+      expect(errorSpy).toHaveBeenCalledWith("Password salah");
+      expect(store.isChangeProfilePassword).toBe(false);
+    });
   });
 });

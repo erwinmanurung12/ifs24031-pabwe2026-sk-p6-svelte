@@ -1,7 +1,23 @@
-import { writable } from "svelte/store";
+export default function useInput(defaultValue = "") {
+  let val = defaultValue;
+  const value = {
+    get value() {
+      return val;
+    },
+    set value(v) {
+      val = v;
+    },
+  };
 
-export function useInput(initialValue = "") {
-  const value = writable(initialValue);
-  const reset = () => value.set(initialValue);
-  return { value, set: value.set, reset };
+  function handleValueChange(event) {
+    value.value = event?.target?.value !== undefined ? event.target.value : event;
+  }
+
+  return [
+    value,
+    handleValueChange,
+    (v) => {
+      value.value = v;
+    },
+  ];
 }

@@ -1,89 +1,125 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/svelte";
-import { get } from "svelte/store";
-import { renderWithProviders } from "../../../test-utils.js";
-import { currentPath } from "../../../router.js";
-
-vi.mock("../states/authStore.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  login: vi.fn(),
-}));
-vi.mock("../../../helpers/toolsHelper.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  showErrorDialog: vi.fn(),
-}));
-
 import LoginPage from "./LoginPage.svelte";
-import { login, authLoading } from "../states/authStore.js";
-import { showErrorDialog } from "../../../helpers/toolsHelper.js";
-
-const fill = async (email, password) => {
-  await fireEvent.input(screen.getByLabelText("Email"), { target: { value: email } });
-  await fireEvent.input(screen.getByLabelText("Kata sandi"), { target: { value: password } });
-};
-const submit = () => screen.getByRole("button", { name: "Masuk" }).click();
-
-beforeEach(() => {
-  vi.resetAllMocks();
-  authLoading.set(false);
-});
+import { renderWithProviders } from "../../../test-utils";
+import apiHelper from "../../../helpers/apiHelper";
 
 describe("LoginPage", () => {
-  it("menolak kolom kosong", async () => {
-    renderWithProviders(LoginPage, { path: "/auth/login" });
-    submit();
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("Email dan kata sandi wajib diisi.")
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should render inputs and handle submit", async () => {
+    const { wrapper, authStore } = renderWithProviders(LoginPage, {
+      preloadedState: {
+        isAuthLogin: false,
+        isProfile: false,
+      },
+    });
+
+    const loginSpy = vi
+      .spyOn(authStore, "asyncSetIsAuthLogin")
+      .mockReturnValue(Promise.resolve());
+
+    const emailInput = wrapper.find('[data-testid="login-email-input"]');
+    const passwordInput = wrapper.find('[data-testid="login-password-input"]');
+    const form = wrapper.find("form");
+
+    await emailInput.setValue("testing@delcom.org");
+    await passwordInput.setValue("123456");
+    await form.trigger("submit");
+
+    expect(loginSpy).toHaveBeenCalledWith("testing@delcom.org", "123456");
+  });
+
+  it("should handle submit when token is present", async () => {
+    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue("valid-token");
+
+    const { wrapper, authStore } = renderWithProviders(LoginPage, {
+      preloadedState: {
+        isAuthLogin: false,
+        isProfile: false,
+      },
+    });
+
+    const loginSpy = vi
+      .spyOn(authStore, "asyncSetIsAuthLogin")
+      .mockReturnValue(Promise.resolve());
+
+    const emailInput = wrapper.find('[data-testid="login-email-input"]');
+    const passwordInput = wrapper.find('[data-testid="login-password-input"]');
+    const form = wrapper.find("form");
+
+    await emailInput.setValue("token@delcom.org");
+    await passwordInput.setValue("123456");
+    await form.trigger("submit");
+
+    expect(loginSpy).toHaveBeenCalledWith("token@delcom.org", "123456");
+  });
+
+  it("should handle error during form submit", async () => {
+    const { wrapper, authStore } = renderWithProviders(LoginPage, {
+      preloadedState: {
+        isAuthLogin: false,
+        isProfile: false,
+      },
+    });
+
+    vi.spyOn(authStore, "asyncSetIsAuthLogin").mockReturnValue(
+      Promise.reject(new Error("Login failed"))
     );
-    expect(login).not.toHaveBeenCalled();
+
+    const emailInput = wrapper.find('[data-testid="login-email-input"]');
+    const passwordInput = wrapper.find('[data-testid="login-password-input"]');
+    const form = wrapper.find("form");
+
+    await emailInput.setValue("error@delcom.org");
+    await passwordInput.setValue("123456");
+    await form.trigger("submit");
+
+    expect(wrapper.find('[data-testid="login-submit-button"]').exists()).toBe(true);
   });
 
-  it("menolak format email salah", async () => {
-    renderWithProviders(LoginPage, { path: "/auth/login" });
-    await fill("salah", "123456");
-    submit();
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("Format email tidak valid.")
-    );
-    expect(login).not.toHaveBeenCalled();
+  it("should trigger asyncSetProfile when login succeeds and token exists", async () => {
+    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue("test-token");
+
+    const { authStore, usersStore } = renderWithProviders(LoginPage, {
+      preloadedState: {
+        isAuthLogin: false,
+        isProfile: false,
+      },
+    });
+
+    const setProfileSpy = vi
+      .spyOn(usersStore, "asyncSetProfile")
+      .mockReturnValue(Promise.resolve());
+
+    authStore.setIsAuthLogin(true);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(setProfileSpy).toHaveBeenCalled();
   });
 
-  it("login sukses lalu pindah ke beranda dan menghapus pesan error", async () => {
-    login.mockResolvedValue({ ok: true });
-    renderWithProviders(LoginPage, { path: "/auth/login" });
+  it("should reset state when login fails or when isProfile finishes", async () => {
+    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue(null);
 
-    submit();
-    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    const { authStore, usersStore } = renderWithProviders(LoginPage, {
+      preloadedState: {
+        isAuthLogin: false,
+        isProfile: false,
+      },
+    });
 
-    await fill("  a@b.co  ", "123456");
-    submit();
+    const setLoginActionSpy = vi.spyOn(authStore, "setIsAuthLogin");
+    const setIsProfileSpy = vi.spyOn(usersStore, "setIsProfile");
 
-    await waitFor(() => expect(get(currentPath)).toBe("/"));
-    expect(login).toHaveBeenCalledWith({ email: "a@b.co", password: "123456" });
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(showErrorDialog).not.toHaveBeenCalled();
-  });
+    // Case 1: isAuthLogin true but no token
+    authStore.setIsAuthLogin(true);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(setLoginActionSpy).toHaveBeenCalledWith(false);
 
-  it("menampilkan dialog error saat login gagal", async () => {
-    login.mockResolvedValue({ ok: false, message: "Kredensial salah" });
-    renderWithProviders(LoginPage, { path: "/auth/login" });
-    await fill("a@b.co", "123456");
-    submit();
-
-    await waitFor(() => expect(showErrorDialog).toHaveBeenCalledWith("Kredensial salah"));
-    expect(get(currentPath)).toBe("/auth/login");
-  });
-
-  it("menampilkan status memproses dan menonaktifkan tombol", () => {
-    authLoading.set(true);
-    renderWithProviders(LoginPage, { path: "/auth/login" });
-    const button = screen.getByRole("button", { name: "Memproses..." });
-    expect(button).toBeDisabled();
-  });
-
-  it("tautan Daftar pindah ke halaman register", async () => {
-    renderWithProviders(LoginPage, { path: "/auth/login" });
-    screen.getByRole("link", { name: "Daftar" }).click();
-    await waitFor(() => expect(get(currentPath)).toBe("/auth/register"));
+    // Case 2: isProfile true
+    usersStore.setIsProfile(true);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(setIsProfileSpy).toHaveBeenCalledWith(false);
   });
 });

@@ -1,107 +1,170 @@
 import { writable } from "svelte/store";
-import { linkTreeApi } from "../api/linkTreeApi.js";
-import { runAction } from "../../../helpers/storeHelper.js";
+import linkTreeApi from "../api/linkTreeApi";
+import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
 
-export const linkTrees = writable([]);
-export const linkTree = writable(null);
-export const linkTreesLoading = writable(false);
-export const linkTreesError = writable(null);
-export const linkTreeError = writable(null);
+export const linkTreeTypes = {
+  public: {
+    label: "Publik",
+    badgeClass: "bg-emerald-50 text-emerald-800 border-emerald-200",
+  },
+  unlisted: {
+    label: "Tidak Terdaftar",
+    badgeClass: "bg-amber-50 text-amber-900 border-amber-200",
+  },
+  private: {
+    label: "Privat",
+    badgeClass: "bg-slate-100 text-slate-800 border-slate-300",
+  },
+};
 
-export const isAdding = writable(false);
-export const isChanging = writable(false);
-export const isChangingCover = writable(false);
-export const isDeleting = writable(false);
-export const isDeletingAll = writable(false);
-export const isMutatingItem = writable(false);
+const initialState = {
+  linkTrees: [],
+  linkTree: null,
+  isLinkTree: false,
+  isLinkTreeAdd: false,
+  isLinkTreeAdded: false,
+  isLinkTreeChange: false,
+  isLinkTreeChanged: false,
+  isLinkTreeChangeCover: false,
+  isLinkTreeChangedCover: false,
+  isLinkTreeDelete: false,
+  isLinkTreeDeleted: false,
+  isLinkTreeDeleteAll: false,
+  isLinkTreeDeletedAll: false,
+  isLinkTreeItemAdd: false,
+  isLinkTreeItemAdded: false,
+  isLinkTreeItemChange: false,
+  isLinkTreeItemChanged: false,
+  isLinkTreeItemDelete: false,
+  isLinkTreeItemDeleted: false,
+};
 
-let lastIsMe = false;
+function createLinkTreesStore() {
+  let currentState = { ...initialState };
+  const innerStore = writable(currentState);
+  innerStore.subscribe((value) => {
+    currentState = value;
+  });
 
-export function resetLinkTreesState() {
-  lastIsMe = false;
-  linkTrees.set([]);
-  linkTree.set(null);
-  linkTreesLoading.set(false);
-  linkTreesError.set(null);
-  linkTreeError.set(null);
-}
-
-export async function fetchLinkTrees(isMe = false) {
-  lastIsMe = isMe;
-  linkTreesLoading.set(true);
-  linkTreesError.set(null);
-  try {
-    const response = await linkTreeApi.getAll(isMe);
-    linkTrees.set(response.data?.link_trees ?? []);
-  } catch (error) {
-    linkTrees.set([]);
-    linkTreesError.set(error.message);
-  } finally {
-    linkTreesLoading.set(false);
+  function setValue(key, value) {
+    innerStore.update((state) => ({ ...state, [key]: value }));
   }
-}
 
-export async function fetchLinkTree(id) {
-  linkTreeError.set(null);
-  try {
-    const response = await linkTreeApi.getById(id);
-    const detail = response.data?.link_tree;
-    if (!detail) {
-      throw new Error("Data link tree tidak ditemukan.");
+  async function mutate(doneKey, successKey, action, fallbackMessage) {
+    try {
+      const message = await action();
+      showSuccessDialog(message || fallbackMessage);
+      setValue(successKey, true);
+    } catch (error) {
+      showErrorDialog(error.message);
+      setValue(successKey, false);
+    } finally {
+      setValue(doneKey, true);
     }
-    linkTree.set(detail);
-  } catch (error) {
-    linkTree.set(null);
-    linkTreeError.set(error.message);
   }
+
+  const store = {
+    subscribe: innerStore.subscribe,
+    reset(state = initialState) {
+      innerStore.set({ ...initialState, ...state });
+    },
+    async asyncSetLinkTrees(isMe = false) {
+      try {
+        setValue("linkTrees", await linkTreeApi.getLinkTrees(isMe));
+      } catch {
+        setValue("linkTrees", []);
+      }
+    },
+    async asyncSetLinkTree(linkTreeId) {
+      try {
+        setValue("linkTree", await linkTreeApi.getLinkTreeById(linkTreeId));
+      } catch {
+        setValue("linkTree", null);
+      } finally {
+        setValue("isLinkTree", true);
+      }
+    },
+    asyncSetIsLinkTreeAdd(title, type, description) {
+      return mutate(
+        "isLinkTreeAdd",
+        "isLinkTreeAdded",
+        () => linkTreeApi.postLinkTree(title, type, description),
+        "Link tree berhasil ditambahkan!"
+      );
+    },
+    asyncSetIsLinkTreeChange(linkTreeId, title, type, description) {
+      return mutate(
+        "isLinkTreeChange",
+        "isLinkTreeChanged",
+        () => linkTreeApi.putLinkTree(linkTreeId, title, type, description),
+        "Link tree berhasil diperbarui!"
+      );
+    },
+    asyncSetIsLinkTreeChangeCover(linkTreeId, cover) {
+      return mutate(
+        "isLinkTreeChangeCover",
+        "isLinkTreeChangedCover",
+        () => linkTreeApi.postLinkTreeCover(linkTreeId, cover),
+        "Cover berhasil diperbarui!"
+      );
+    },
+    asyncSetIsLinkTreeDelete(linkTreeId) {
+      return mutate(
+        "isLinkTreeDelete",
+        "isLinkTreeDeleted",
+        () => linkTreeApi.deleteLinkTree(linkTreeId),
+        "Link tree berhasil dihapus!"
+      );
+    },
+    asyncSetIsLinkTreeDeleteAll() {
+      return mutate(
+        "isLinkTreeDeleteAll",
+        "isLinkTreeDeletedAll",
+        () => linkTreeApi.deleteAllLinkTrees(),
+        "Semua link tree berhasil dihapus!"
+      );
+    },
+    asyncSetIsLinkTreeItemAdd(linkTreeId, title, url) {
+      return mutate(
+        "isLinkTreeItemAdd",
+        "isLinkTreeItemAdded",
+        () => linkTreeApi.postLinkTreeItem(linkTreeId, title, url),
+        "Tautan berhasil ditambahkan!"
+      );
+    },
+    asyncSetIsLinkTreeItemChange(linkTreeId, itemId, title, url) {
+      return mutate(
+        "isLinkTreeItemChange",
+        "isLinkTreeItemChanged",
+        () => linkTreeApi.putLinkTreeItem(linkTreeId, itemId, title, url),
+        "Tautan berhasil diperbarui!"
+      );
+    },
+    asyncSetIsLinkTreeItemDelete(linkTreeId, itemId) {
+      return mutate(
+        "isLinkTreeItemDelete",
+        "isLinkTreeItemDeleted",
+        () => linkTreeApi.deleteLinkTreeItem(linkTreeId, itemId),
+        "Tautan berhasil dihapus!"
+      );
+    },
+  };
+
+  Object.keys(initialState).forEach((key) => {
+    store[`set${key.charAt(0).toUpperCase()}${key.slice(1)}`] = (value) => setValue(key, value);
+    Object.defineProperty(store, key, {
+      get: () => currentState[key],
+      enumerable: true,
+    });
+  });
+
+  Object.defineProperty(store, "$state", {
+    get: () => currentState,
+  });
+
+  return store;
 }
 
-export function clearLinkTree() {
-  linkTree.set(null);
-  linkTreeError.set(null);
-}
-
-async function refreshList(result) {
-  if (result.ok) await fetchLinkTrees(lastIsMe);
-  return result;
-}
-
-async function refreshDetail(result, id) {
-  if (result.ok) await fetchLinkTree(id);
-  return result;
-}
-
-export async function addLinkTree(payload) {
-  return refreshList(await runAction(isAdding, () => linkTreeApi.create(payload)));
-}
-
-export async function removeLinkTree(id) {
-  return refreshList(await runAction(isDeleting, () => linkTreeApi.remove(id)));
-}
-
-export async function removeAllLinkTrees() {
-  return refreshList(await runAction(isDeletingAll, () => linkTreeApi.removeAll()));
-}
-
-export async function changeLinkTree(id, payload) {
-  return refreshDetail(await runAction(isChanging, () => linkTreeApi.update(id, payload)), id);
-}
-
-export async function changeCover(id, file) {
-  return refreshDetail(await runAction(isChangingCover, () => linkTreeApi.uploadCover(id, file)), id);
-}
-
-export async function addItem(id, payload) {
-  return refreshDetail(await runAction(isMutatingItem, () => linkTreeApi.addItem(id, payload)), id);
-}
-
-export async function changeItem(id, itemId, payload) {
-  return refreshDetail(
-    await runAction(isMutatingItem, () => linkTreeApi.updateItem(id, itemId, payload)),
-    id
-  );
-}
-
-export async function removeItem(id, itemId) {
-  return refreshDetail(await runAction(isMutatingItem, () => linkTreeApi.removeItem(id, itemId)), id);
-}
+export const linkTreesStore = createLinkTreesStore();
+export const useLinkTreesStore = () => linkTreesStore;
+export default linkTreesStore;

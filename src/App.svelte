@@ -1,6 +1,5 @@
 <script>
-  import { currentPath, navigate, resolveRoute } from "./router.js";
-  import { token, profile, fetchProfile } from "./features/auth/states/authStore.js";
+  import { currentRoute } from "./router.js";
   import AuthLayout from "./features/auth/layouts/AuthLayout.svelte";
   import LoginPage from "./features/auth/pages/LoginPage.svelte";
   import RegisterPage from "./features/auth/pages/RegisterPage.svelte";
@@ -10,43 +9,28 @@
   import UsersPage from "./features/users/pages/UsersPage.svelte";
   import ProfilePage from "./features/users/pages/ProfilePage.svelte";
   import NotFoundPage from "./features/common/pages/NotFoundPage.svelte";
-
-  const pages = {
-    login: LoginPage,
-    register: RegisterPage,
-    home: HomePage,
-    detail: DetailPage,
-    users: UsersPage,
-    profile: ProfilePage,
-    "not-found": NotFoundPage,
-  };
-
-  const route = $derived(resolveRoute($currentPath));
-  const Page = $derived(pages[route.name]);
-
-  $effect(() => {
-    if (route.layout === "app" && !$token) {
-      navigate("/auth/login", { replace: true });
-    } else if (route.layout === "auth" && $token) {
-      navigate("/", { replace: true });
-    }
-  });
-
-  $effect(() => {
-    if ($token && !$profile) {
-      fetchProfile();
-    }
-  });
 </script>
 
-{#if route.layout === "auth"}
-  {#if !$token}
-    <AuthLayout><Page /></AuthLayout>
-  {/if}
-{:else if route.layout === "app"}
-  {#if $token}
-    <LinkTreeLayout><Page params={route.params} /></LinkTreeLayout>
-  {/if}
+{#if $currentRoute.layout === 'auth'}
+  <AuthLayout>
+    {#if $currentRoute.name === 'login'}
+      <LoginPage />
+    {:else}
+      <RegisterPage />
+    {/if}
+  </AuthLayout>
+{:else if $currentRoute.layout === 'linktree'}
+  <LinkTreeLayout>
+    {#if $currentRoute.name === 'home'}
+      <HomePage />
+    {:else if $currentRoute.name === 'link-tree-detail'}
+      <DetailPage linkTreeId={$currentRoute.params.linkTreeId} />
+    {:else if $currentRoute.name === 'users'}
+      <UsersPage />
+    {:else}
+      <ProfilePage />
+    {/if}
+  </LinkTreeLayout>
 {:else}
-  <Page />
+  <NotFoundPage />
 {/if}

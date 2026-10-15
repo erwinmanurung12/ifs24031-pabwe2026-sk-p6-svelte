@@ -1,72 +1,160 @@
 <script>
-  import Modal from "../components/Modal.svelte";
-  import { useInput } from "../../../hooks/useInput.js";
-  import { addItem, changeItem, isMutatingItem } from "../states/linkTreesStore.js";
-  import { showSuccessDialog, showErrorDialog, isValidHttpUrl } from "../../../helpers/toolsHelper.js";
-  import { inputClass, labelClass, primaryButton, secondaryButton } from "../../../helpers/styles.js";
+  import { Plus, PenLine, X, LoaderCircle } from "lucide-svelte";
+  import { linkTreesStore } from "../states/linkTreesStore";
+  import { showErrorDialog } from "../../../helpers/toolsHelper";
 
-  let { open = false, linkTreeId, item = null, onClose } = $props();
+  export let show = false;
+  export let linkTreeId = null;
+  export let item = null;
+  export let onClose = undefined;
 
-  const { value: title } = useInput("");
-  const { value: url } = useInput("");
-  let errorText = $state("");
+  let loading = false;
+  let title = "";
+  let url = "";
 
-  const isEdit = $derived(item !== null);
+  $: isEdit = Boolean(item);
 
-  $effect(() => {
-    if (open) {
-      title.set(item ? item.title : "");
-      url.set(item ? item.url : "");
-      errorText = "";
+  function handleClose() {
+    if (onClose) onClose();
+  }
+
+  function populate(source) {
+    title = source ? source.title : "";
+    url = source ? source.url : "";
+  }
+
+  $: if (show) {
+    populate(item);
+  }
+
+  function finish(isSuccess) {
+    loading = false;
+    if (isSuccess) {
+      linkTreesStore.asyncSetLinkTree(linkTreeId);
+      handleClose();
     }
-  });
+  }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-    if (!$title.trim() || !$url.trim()) {
-      errorText = "Judul dan URL wajib diisi.";
+  $: if ($linkTreesStore.isLinkTreeItemAdd) {
+    const isSuccess = $linkTreesStore.isLinkTreeItemAdded;
+    linkTreesStore.setIsLinkTreeItemAdd(false);
+    linkTreesStore.setIsLinkTreeItemAdded(false);
+    finish(isSuccess);
+  }
+
+  $: if ($linkTreesStore.isLinkTreeItemChange) {
+    const isSuccess = $linkTreesStore.isLinkTreeItemChanged;
+    linkTreesStore.setIsLinkTreeItemChange(false);
+    linkTreesStore.setIsLinkTreeItemChanged(false);
+    finish(isSuccess);
+  }
+
+  function handleSave() {
+    if (!title.trim()) {
+      showErrorDialog("Judul tautan tidak boleh kosong");
       return;
     }
-    if (!isValidHttpUrl($url.trim())) {
-      errorText = "URL harus diawali http:// atau https://.";
+
+    if (!url.trim()) {
+      showErrorDialog("URL tautan tidak boleh kosong");
       return;
     }
-    errorText = "";
 
-    const payload = { title: $title.trim(), url: $url.trim() };
-    const result = isEdit
-      ? await changeItem(linkTreeId, item.id, payload)
-      : await addItem(linkTreeId, payload);
-
-    if (result.ok) {
-      await showSuccessDialog(result.message);
-      onClose();
+    loading = true;
+    if (isEdit) {
+      linkTreesStore.asyncSetIsLinkTreeItemChange(linkTreeId, item.id, title.trim(), url.trim());
     } else {
-      await showErrorDialog(result.message);
+      linkTreesStore.asyncSetIsLinkTreeItemAdd(linkTreeId, title.trim(), url.trim());
     }
   }
 </script>
 
-<Modal {open} title={isEdit ? "Ubah Tautan" : "Tambah Tautan"} {onClose}>
-  <form class="space-y-4" onsubmit={handleSubmit} novalidate>
-    <div>
-      <label class={labelClass} for="item-title">Judul tautan</label>
-      <input id="item-title" type="text" class={inputClass} bind:value={$title} />
-    </div>
-    <div>
-      <label class={labelClass} for="item-url">URL</label>
-      <input id="item-url" type="url" placeholder="https://" class={inputClass} bind:value={$url} />
-    </div>
+{#if show}
+  <div
+    data-testid="item-modal"
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50"
+  >
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="item-modal-heading"
+      class="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
+    >
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+        <h2 id="item-modal-heading" class="text-base font-bold text-slate-900">
+          {isEdit ? "Ubah Tautan" : "Tambah Tautan"}
+        </h2>
+        <button
+          type="button"
+          data-testid="close-item-modal-btn"
+          on:click={handleClose}
+          aria-label="Tutup modal tautan"
+          class="p-2 rounded-xl text-slate-700 hover:bg-slate-200 transition-colors"
+        >
+          <X size={20} />
+        </button>
+      </div>
 
-    {#if errorText}
-      <p class="text-sm text-rose-600" role="alert">{errorText}</p>
-    {/if}
+      <form on:submit|preventDefault={handleSave} class="p-6 space-y-4">
+        <div>
+          <label for="item-title-input" class="block text-sm font-semibold text-slate-800 mb-1.5">
+            Judul Tautan
+          </label>
+          <input
+            id="item-title-input"
+            type="text"
+            data-testid="item-title-input"
+            bind:value={title}
+            placeholder="Contoh: Website Delcom"
+            class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-600 text-sm"
+            required
+          />
+        </div>
 
-    <div class="flex justify-end gap-2">
-      <button type="button" class={secondaryButton} onclick={onClose}>Batal</button>
-      <button type="submit" class={primaryButton} disabled={$isMutatingItem}>
-        {$isMutatingItem ? "Menyimpan..." : "Simpan"}
-      </button>
+        <div>
+          <label for="item-url-input" class="block text-sm font-semibold text-slate-800 mb-1.5">
+            URL
+          </label>
+          <input
+            id="item-url-input"
+            type="url"
+            data-testid="item-url-input"
+            bind:value={url}
+            placeholder="https://delcom.org"
+            class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-600 text-sm"
+            required
+          />
+        </div>
+
+        <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
+          <button
+            type="button"
+            data-testid="cancel-item-modal-btn"
+            on:click={handleClose}
+            disabled={loading}
+            class="px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            data-testid="submit-item-modal-btn"
+            disabled={loading}
+            class="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors disabled:opacity-60"
+          >
+            {#if loading}
+              <LoaderCircle size={18} class="animate-spin" />
+              <span>Menyimpan...</span>
+            {:else if isEdit}
+              <PenLine size={18} strokeWidth={2.5} />
+              <span>Simpan Tautan</span>
+            {:else}
+              <Plus size={18} strokeWidth={2.5} />
+              <span>Tambah Tautan</span>
+            {/if}
+          </button>
+        </div>
+      </form>
     </div>
-  </form>
-</Modal>
+  </div>
+{/if}

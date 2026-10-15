@@ -1,181 +1,195 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { get } from "svelte/store";
+import { linkTreesStore, useLinkTreesStore, linkTreeTypes } from "./linkTreesStore";
+import linkTreeApi from "../api/linkTreeApi";
+import * as toolsHelper from "../../../helpers/toolsHelper";
 
-vi.mock("../api/linkTreeApi.js", () => ({
-  linkTreeApi: {
-    create: vi.fn(),
-    uploadCover: vi.fn(),
-    update: vi.fn(),
-    getAll: vi.fn(),
-    getById: vi.fn(),
-    remove: vi.fn(),
-    removeAll: vi.fn(),
-    addItem: vi.fn(),
-    updateItem: vi.fn(),
-    removeItem: vi.fn(),
-  },
-}));
+describe("linkTreesStore", () => {
+  let successSpy;
+  let errorSpy;
 
-import { linkTreeApi } from "../api/linkTreeApi.js";
-import * as store from "./linkTreesStore.js";
-
-const ok = (data, message = "Berhasil") => ({ status: "success", message, data });
-
-beforeEach(() => {
-  vi.resetAllMocks();
-  store.resetLinkTreesState();
-});
-
-describe("fetchLinkTrees", () => {
-  it("mengisi koleksi dan mematikan loading", async () => {
-    linkTreeApi.getAll.mockResolvedValue(ok({ link_trees: [{ id: 1 }] }));
-    await store.fetchLinkTrees();
-    expect(get(store.linkTrees)).toEqual([{ id: 1 }]);
-    expect(get(store.linkTreesError)).toBeNull();
-    expect(get(store.linkTreesLoading)).toBe(false);
-    expect(linkTreeApi.getAll).toHaveBeenCalledWith(false);
+  beforeEach(() => {
+    linkTreesStore.reset();
+    vi.restoreAllMocks();
+    successSpy = vi.spyOn(toolsHelper, "showSuccessDialog").mockImplementation(() => {});
+    errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
   });
 
-  it("meneruskan filter milik saya", async () => {
-    linkTreeApi.getAll.mockResolvedValue(ok({ link_trees: [] }));
-    await store.fetchLinkTrees(true);
-    expect(linkTreeApi.getAll).toHaveBeenCalledWith(true);
+  it("should expose link tree type metadata", () => {
+    expect(Object.keys(linkTreeTypes)).toEqual(["public", "unlisted", "private"]);
   });
 
-  it("memakai array kosong bila data tidak sesuai", async () => {
-    linkTreeApi.getAll.mockResolvedValue({ status: "success" });
-    await store.fetchLinkTrees();
-    expect(get(store.linkTrees)).toEqual([]);
+  it("should have correct default state and hook accessor", () => {
+    const store = useLinkTreesStore();
+    expect(store).toBe(linkTreesStore);
+    expect(store.linkTrees).toEqual([]);
+    expect(store.linkTree).toBeNull();
+    expect(store.isLinkTree).toBe(false);
+    expect(store.isLinkTreeAdd).toBe(false);
+    expect(store.isLinkTreeDeletedAll).toBe(false);
+    expect(store.$state.isLinkTreeItemDeleted).toBe(false);
+    expect(get(store).linkTrees).toEqual([]);
   });
 
-  it("menyimpan pesan error bila gagal", async () => {
-    linkTreeApi.getAll.mockRejectedValue(new Error("gagal"));
-    await store.fetchLinkTrees();
-    expect(get(store.linkTreesError)).toBe("gagal");
-    expect(get(store.linkTrees)).toEqual([]);
-    expect(get(store.linkTreesLoading)).toBe(false);
-  });
-});
+  it("should update state with generated setters", () => {
+    const store = useLinkTreesStore();
+    store.setLinkTrees([{ id: 1 }]);
+    store.setLinkTree({ id: 1 });
+    store.setIsLinkTree(true);
+    store.setIsLinkTreeAdd(true);
+    store.setIsLinkTreeAdded(true);
+    store.setIsLinkTreeChange(true);
+    store.setIsLinkTreeChanged(true);
+    store.setIsLinkTreeChangeCover(true);
+    store.setIsLinkTreeChangedCover(true);
+    store.setIsLinkTreeDelete(true);
+    store.setIsLinkTreeDeleted(true);
+    store.setIsLinkTreeDeleteAll(true);
+    store.setIsLinkTreeDeletedAll(true);
+    store.setIsLinkTreeItemAdd(true);
+    store.setIsLinkTreeItemAdded(true);
+    store.setIsLinkTreeItemChange(true);
+    store.setIsLinkTreeItemChanged(true);
+    store.setIsLinkTreeItemDelete(true);
+    store.setIsLinkTreeItemDeleted(true);
 
-describe("fetchLinkTree dan clearLinkTree", () => {
-  it("mengisi detail", async () => {
-    linkTreeApi.getById.mockResolvedValue(ok({ link_tree: { id: 5, items: [] } }));
-    await store.fetchLinkTree(5);
-    expect(get(store.linkTree)).toEqual({ id: 5, items: [] });
-    expect(get(store.linkTreeError)).toBeNull();
-  });
-
-  it("menandai error bila detail tidak ada di respons", async () => {
-    linkTreeApi.getById.mockResolvedValue(ok({}));
-    await store.fetchLinkTree(5);
-    expect(get(store.linkTree)).toBeNull();
-    expect(get(store.linkTreeError)).toBe("Data link tree tidak ditemukan.");
-  });
-
-  it("menandai error bila data tidak ada sama sekali", async () => {
-    linkTreeApi.getById.mockResolvedValue({ status: "success" });
-    await store.fetchLinkTree(5);
-    expect(get(store.linkTreeError)).toBe("Data link tree tidak ditemukan.");
+    expect(store.linkTrees).toEqual([{ id: 1 }]);
+    expect(store.linkTree).toEqual({ id: 1 });
+    expect(Object.values(store.$state).filter((value) => value === true)).toHaveLength(17);
   });
 
-  it("menandai error bila request gagal", async () => {
-    linkTreeApi.getById.mockRejectedValue(new Error("404"));
-    await store.fetchLinkTree(5);
-    expect(get(store.linkTreeError)).toBe("404");
+  it("reset should merge a partial state over the defaults", () => {
+    linkTreesStore.reset({ linkTrees: [{ id: 3 }] });
+    expect(linkTreesStore.linkTrees).toEqual([{ id: 3 }]);
+    expect(linkTreesStore.isLinkTree).toBe(false);
   });
 
-  it("clearLinkTree mengosongkan detail dan error", () => {
-    store.linkTree.set({ id: 1 });
-    store.linkTreeError.set("x");
-    store.clearLinkTree();
-    expect(get(store.linkTree)).toBeNull();
-    expect(get(store.linkTreeError)).toBeNull();
-  });
-});
+  describe("asyncSetLinkTrees", () => {
+    it("should load link trees using the is_me flag", async () => {
+      const spy = vi.spyOn(linkTreeApi, "getLinkTrees").mockResolvedValue([{ id: 1 }]);
+      await linkTreesStore.asyncSetLinkTrees(true);
+      expect(spy).toHaveBeenCalledWith(true);
+      expect(linkTreesStore.linkTrees).toEqual([{ id: 1 }]);
+    });
 
-const listMutations = [
-  ["addLinkTree", () => store.addLinkTree({ title: "T" }), "create", store.isAdding],
-  ["removeLinkTree", () => store.removeLinkTree(5), "remove", store.isDeleting],
-  ["removeAllLinkTrees", () => store.removeAllLinkTrees(), "removeAll", store.isDeletingAll],
-];
-
-describe.each(listMutations)("%s", (_name, run, apiName, flag) => {
-  it("sukses lalu memuat ulang daftar dengan filter terakhir", async () => {
-    linkTreeApi.getAll.mockResolvedValue(ok({ link_trees: [{ id: 9 }] }));
-    await store.fetchLinkTrees(true);
-    linkTreeApi[apiName].mockResolvedValue(ok(undefined, "Sukses"));
-
-    const result = await run();
-
-    expect(result).toMatchObject({ ok: true, message: "Sukses" });
-    expect(linkTreeApi.getAll).toHaveBeenLastCalledWith(true);
-    expect(linkTreeApi.getAll).toHaveBeenCalledTimes(2);
-    expect(get(flag)).toBe(false);
+    it("should default to false and fall back to empty array on error", async () => {
+      const spy = vi.spyOn(linkTreeApi, "getLinkTrees").mockRejectedValue(new Error("x"));
+      linkTreesStore.setLinkTrees([{ id: 1 }]);
+      await linkTreesStore.asyncSetLinkTrees();
+      expect(spy).toHaveBeenCalledWith(false);
+      expect(linkTreesStore.linkTrees).toEqual([]);
+    });
   });
 
-  it("gagal tanpa memuat ulang daftar", async () => {
-    linkTreeApi[apiName].mockRejectedValue(new Error("gagal"));
-    const result = await run();
-    expect(result).toMatchObject({ ok: false, message: "gagal" });
-    expect(linkTreeApi.getAll).not.toHaveBeenCalled();
-    expect(get(flag)).toBe(false);
-  });
-});
+  describe("asyncSetLinkTree", () => {
+    it("should store detail and flag isLinkTree", async () => {
+      vi.spyOn(linkTreeApi, "getLinkTreeById").mockResolvedValue({ id: 1 });
+      await linkTreesStore.asyncSetLinkTree(1);
+      expect(linkTreesStore.linkTree).toEqual({ id: 1 });
+      expect(linkTreesStore.isLinkTree).toBe(true);
+    });
 
-const detailMutations = [
-  ["changeLinkTree", () => store.changeLinkTree(5, { title: "T" }), "update", store.isChanging],
-  ["changeCover", () => store.changeCover(5, new File(["x"], "c.png")), "uploadCover", store.isChangingCover],
-  ["addItem", () => store.addItem(5, { title: "A", url: "https://a.test" }), "addItem", store.isMutatingItem],
-  ["changeItem", () => store.changeItem(5, 9, { title: "A", url: "https://a.test" }), "updateItem", store.isMutatingItem],
-  ["removeItem", () => store.removeItem(5, 9), "removeItem", store.isMutatingItem],
-];
-
-describe.each(detailMutations)("%s", (_name, run, apiName, flag) => {
-  it("sukses lalu memuat ulang detail", async () => {
-    linkTreeApi[apiName].mockResolvedValue(ok(undefined, "Sukses"));
-    linkTreeApi.getById.mockResolvedValue(ok({ link_tree: { id: 5 } }));
-
-    const result = await run();
-
-    expect(result).toMatchObject({ ok: true, message: "Sukses" });
-    expect(linkTreeApi.getById).toHaveBeenCalledWith(5);
-    expect(get(store.linkTree)).toEqual({ id: 5 });
-    expect(get(flag)).toBe(false);
+    it("should set null on error and still flag isLinkTree", async () => {
+      vi.spyOn(linkTreeApi, "getLinkTreeById").mockRejectedValue(new Error("x"));
+      await linkTreesStore.asyncSetLinkTree(9);
+      expect(linkTreesStore.linkTree).toBeNull();
+      expect(linkTreesStore.isLinkTree).toBe(true);
+    });
   });
 
-  it("gagal tanpa memuat ulang detail", async () => {
-    linkTreeApi[apiName].mockRejectedValue(new Error("gagal"));
-    const result = await run();
-    expect(result).toMatchObject({ ok: false, message: "gagal" });
-    expect(linkTreeApi.getById).not.toHaveBeenCalled();
-    expect(get(flag)).toBe(false);
-  });
-});
+  const mutations = [
+    {
+      name: "asyncSetIsLinkTreeAdd",
+      args: ["T", "public", "D"],
+      api: "postLinkTree",
+      done: "isLinkTreeAdd",
+      ok: "isLinkTreeAdded",
+      fallback: "Link tree berhasil ditambahkan!",
+    },
+    {
+      name: "asyncSetIsLinkTreeChange",
+      args: [1, "T", "public", "D"],
+      api: "putLinkTree",
+      done: "isLinkTreeChange",
+      ok: "isLinkTreeChanged",
+      fallback: "Link tree berhasil diperbarui!",
+    },
+    {
+      name: "asyncSetIsLinkTreeChangeCover",
+      args: [1, new File(["x"], "c.jpg")],
+      api: "postLinkTreeCover",
+      done: "isLinkTreeChangeCover",
+      ok: "isLinkTreeChangedCover",
+      fallback: "Cover berhasil diperbarui!",
+    },
+    {
+      name: "asyncSetIsLinkTreeDelete",
+      args: [1],
+      api: "deleteLinkTree",
+      done: "isLinkTreeDelete",
+      ok: "isLinkTreeDeleted",
+      fallback: "Link tree berhasil dihapus!",
+    },
+    {
+      name: "asyncSetIsLinkTreeDeleteAll",
+      args: [],
+      api: "deleteAllLinkTrees",
+      done: "isLinkTreeDeleteAll",
+      ok: "isLinkTreeDeletedAll",
+      fallback: "Semua link tree berhasil dihapus!",
+    },
+    {
+      name: "asyncSetIsLinkTreeItemAdd",
+      args: [1, "T", "https://a.org"],
+      api: "postLinkTreeItem",
+      done: "isLinkTreeItemAdd",
+      ok: "isLinkTreeItemAdded",
+      fallback: "Tautan berhasil ditambahkan!",
+    },
+    {
+      name: "asyncSetIsLinkTreeItemChange",
+      args: [1, 2, "T", "https://a.org"],
+      api: "putLinkTreeItem",
+      done: "isLinkTreeItemChange",
+      ok: "isLinkTreeItemChanged",
+      fallback: "Tautan berhasil diperbarui!",
+    },
+    {
+      name: "asyncSetIsLinkTreeItemDelete",
+      args: [1, 2],
+      api: "deleteLinkTreeItem",
+      done: "isLinkTreeItemDelete",
+      ok: "isLinkTreeItemDeleted",
+      fallback: "Tautan berhasil dihapus!",
+    },
+  ];
 
-describe("bendera mutasi", () => {
-  it("isAdding menyala selama request berjalan", async () => {
-    let resolveCreate;
-    linkTreeApi.create.mockReturnValue(new Promise((resolve) => (resolveCreate = resolve)));
-    linkTreeApi.getAll.mockResolvedValue(ok({ link_trees: [] }));
+  describe.each(mutations)("$name", ({ name, args, api, done, ok, fallback }) => {
+    it("should call the api with the given arguments, show the server message and set flags", async () => {
+      const spy = vi.spyOn(linkTreeApi, api).mockResolvedValue("Pesan server");
 
-    const pending = store.addLinkTree({ title: "T" });
-    expect(get(store.isAdding)).toBe(true);
-    resolveCreate(ok(undefined));
-    await pending;
-    expect(get(store.isAdding)).toBe(false);
-  });
-});
+      await linkTreesStore[name](...args);
 
-describe("resetLinkTreesState", () => {
-  it("mengosongkan semua state", async () => {
-    store.linkTrees.set([{ id: 1 }]);
-    store.linkTree.set({ id: 1 });
-    store.linkTreesError.set("x");
-    store.linkTreeError.set("y");
-    store.resetLinkTreesState();
-    expect(get(store.linkTrees)).toEqual([]);
-    expect(get(store.linkTree)).toBeNull();
-    expect(get(store.linkTreesError)).toBeNull();
-    expect(get(store.linkTreeError)).toBeNull();
+      expect(spy).toHaveBeenCalledWith(...args);
+      expect(successSpy).toHaveBeenCalledWith("Pesan server");
+      expect(linkTreesStore[ok]).toBe(true);
+      expect(linkTreesStore[done]).toBe(true);
+    });
+
+    it("should use fallback message when the server message is empty", async () => {
+      vi.spyOn(linkTreeApi, api).mockResolvedValue("");
+      await linkTreesStore[name](...args);
+      expect(successSpy).toHaveBeenCalledWith(fallback);
+    });
+
+    it("should show an error dialog and keep the success flag false on failure", async () => {
+      vi.spyOn(linkTreeApi, api).mockRejectedValue(new Error("Gagal"));
+
+      await linkTreesStore[name](...args);
+
+      expect(errorSpy).toHaveBeenCalledWith("Gagal");
+      expect(linkTreesStore[ok]).toBe(false);
+      expect(linkTreesStore[done]).toBe(true);
+    });
   });
 });

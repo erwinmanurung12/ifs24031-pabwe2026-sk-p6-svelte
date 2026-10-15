@@ -1,59 +1,100 @@
 <script>
-  import { useInput } from "../../../hooks/useInput.js";
-  import { login, authLoading } from "../states/authStore.js";
-  import { showErrorDialog, isValidEmail } from "../../../helpers/toolsHelper.js";
-  import { navigate, handleLinkClick } from "../../../router.js";
-  import { inputClass, labelClass, primaryButton } from "../../../helpers/styles.js";
+  import { Mail, Lock, LoaderCircle, LogIn } from "lucide-svelte";
+  import { authStore } from "../states/authStore";
+  import { usersStore } from "../../users/states/usersStore";
+  import apiHelper from "../../../helpers/apiHelper";
 
-  const { value: email } = useInput("");
-  const { value: password } = useInput("");
-  let errorText = $state("");
+  let email = "";
+  let password = "";
+  let loading = false;
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-
-    if (!$email.trim() || !$password) {
-      errorText = "Email dan kata sandi wajib diisi.";
-      return;
-    }
-    if (!isValidEmail($email.trim())) {
-      errorText = "Format email tidak valid.";
-      return;
-    }
-    errorText = "";
-
-    const result = await login({ email: $email.trim(), password: $password });
-    if (result.ok) {
-      navigate("/", { replace: true });
+  $: if ($authStore.isAuthLogin === true) {
+    const authToken = apiHelper.getAccessToken();
+    if (authToken) {
+      usersStore.asyncSetProfile();
     } else {
-      await showErrorDialog(result.message);
+      loading = false;
+      authStore.setIsAuthLogin(false);
+    }
+  }
+
+  $: if ($usersStore.isProfile) {
+    loading = false;
+    authStore.setIsAuthLogin(false);
+    usersStore.setIsProfile(false);
+  }
+
+  async function onSubmitHandler() {
+    loading = true;
+    try {
+      await authStore.asyncSetIsAuthLogin(email, password);
+      if (!apiHelper.getAccessToken()) {
+        loading = false;
+      }
+    } catch {
+      loading = false;
     }
   }
 </script>
 
-<h1 class="text-2xl font-extrabold text-slate-900">Masuk</h1>
-<p class="mb-6 mt-1 text-sm text-slate-500">Masuk untuk mengelola Link Tree Anda.</p>
-
-<form class="space-y-4" onsubmit={handleSubmit} novalidate>
+<form on:submit|preventDefault={onSubmitHandler} class="space-y-4">
   <div>
-    <label class={labelClass} for="login-email">Email</label>
-    <input id="login-email" type="email" autocomplete="email" class={inputClass} bind:value={$email} />
+    <label for="login-email-input" class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+      Alamat Email
+    </label>
+    <div class="relative">
+      <Mail
+        size={18}
+        class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+      />
+      <input
+        type="email"
+        id="login-email-input"
+        data-testid="login-email-input"
+        bind:value={email}
+        placeholder="nama@email.com"
+        class="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
+        required
+      />
+    </div>
   </div>
+
   <div>
-    <label class={labelClass} for="login-password">Kata sandi</label>
-    <input id="login-password" type="password" autocomplete="current-password" class={inputClass} bind:value={$password} />
+    <label for="login-password-input" class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+      Kata Sandi
+    </label>
+    <div class="relative">
+      <Lock
+        size={18}
+        class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+      />
+      <input
+        type="password"
+        id="login-password-input"
+        data-testid="login-password-input"
+        bind:value={password}
+        placeholder="••••••••"
+        class="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
+        required
+      />
+    </div>
   </div>
 
-  {#if errorText}
-    <p class="text-sm text-rose-600" role="alert">{errorText}</p>
-  {/if}
-
-  <button type="submit" class={`${primaryButton} w-full`} disabled={$authLoading}>
-    {$authLoading ? "Memproses..." : "Masuk"}
-  </button>
+  <div class="pt-2">
+    <button
+      type="submit"
+      id="login-submit-button"
+      data-testid="login-submit-button"
+      disabled={loading}
+      class="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-xl shadow-md shadow-indigo-600/25 transition-all disabled:opacity-60"
+    >
+      {#if loading}
+        <LoaderCircle size={18} class="animate-spin" />
+        <span>Sedang Masuk...</span>
+      {:else}
+        <LogIn size={18} strokeWidth={2.5} />
+        <span>Masuk Sekarang</span>
+      {/if}
+    </button>
+  </div>
 </form>
-
-<p class="mt-6 text-center text-sm text-slate-500">
-  Belum punya akun?
-  <a href="/auth/register" class="font-semibold text-indigo-600" onclick={(e) => handleLinkClick(e, "/auth/register")}>Daftar</a>
-</p>

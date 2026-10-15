@@ -1,20 +1,36 @@
-import { describe, it, expect } from "vitest";
-import { screen, waitFor } from "@testing-library/svelte";
-import { get } from "svelte/store";
-import { renderWithProviders } from "../../../test-utils.js";
-import { currentPath } from "../../../router.js";
+import { describe, it, expect, vi } from "vitest";
 import NotFoundPage from "./NotFoundPage.svelte";
+import { renderWithProviders } from "../../../test-utils";
+import * as routerModule from "../../../router";
 
 describe("NotFoundPage", () => {
-  it("menampilkan pesan 404", () => {
-    renderWithProviders(NotFoundPage, { path: "/tidak-ada" });
-    expect(screen.getByText("404")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Halaman tidak ditemukan" })).toBeInTheDocument();
+  it("should render 404 text and description properly", () => {
+    const { wrapper } = renderWithProviders(NotFoundPage);
+
+    expect(wrapper.text()).toContain("404");
+    expect(wrapper.text()).toContain("Halaman Tidak Ditemukan");
+    expect(wrapper.text()).toContain(
+      "Maaf, halaman yang Anda cari tidak dapat ditemukan"
+    );
   });
 
-  it("kembali ke beranda saat tautan diklik", async () => {
-    renderWithProviders(NotFoundPage, { path: "/tidak-ada" });
-    screen.getByRole("link", { name: "Kembali ke beranda" }).click();
-    await waitFor(() => expect(get(currentPath)).toBe("/"));
+  it("should navigate back when Kembali button is clicked", async () => {
+    const backSpy = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const { wrapper } = renderWithProviders(NotFoundPage);
+
+    const backButton = wrapper.find('[data-testid="back-button"]');
+    await backButton.trigger("click");
+
+    expect(backSpy).toHaveBeenCalled();
+  });
+
+  it("should navigate to home when Beranda button is clicked", async () => {
+    const navSpy = vi.spyOn(routerModule, "navigate").mockImplementation(() => {});
+    const { wrapper } = renderWithProviders(NotFoundPage);
+
+    const homeButton = wrapper.find('[data-testid="home-button"]');
+    await homeButton.trigger("click");
+
+    expect(navSpy).toHaveBeenCalledWith("/");
   });
 });

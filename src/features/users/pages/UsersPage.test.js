@@ -1,69 +1,113 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent } from "@testing-library/svelte";
-import { renderWithProviders } from "../../../test-utils.js";
-
-vi.mock("../states/usersStore.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  fetchUsers: vi.fn(),
-}));
-
 import UsersPage from "./UsersPage.svelte";
-import { users, usersLoading, usersError, fetchUsers } from "../states/usersStore.js";
-
-const origin = new URL(DELCOM_BASEURL).origin;
-const data = [
-  { id: 1, name: "Ana", email: "ana@x.id", photo: "img/a.png" },
-  { id: 2, name: "Budi", email: "budi@x.id", photo: null },
-];
-
-beforeEach(() => {
-  vi.resetAllMocks();
-  users.set([]);
-  usersLoading.set(false);
-  usersError.set(null);
-});
+import { renderWithProviders } from "../../../test-utils";
+import { usersStore } from "../states/usersStore";
 
 describe("UsersPage", () => {
-  it("memuat pengguna saat dipasang", () => {
-    renderWithProviders(UsersPage, { path: "/users" });
-    expect(fetchUsers).toHaveBeenCalledTimes(1);
+  beforeEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it("menampilkan status loading", () => {
-    usersLoading.set(true);
-    renderWithProviders(UsersPage, { path: "/users" });
-    expect(screen.getByText("Memuat pengguna...")).toBeInTheDocument();
+  const mockUsers = [
+    {
+      id: 1,
+      name: "Abdullah",
+      email: "abdullah@delcom.org",
+      photo: "https://example.com/photo.jpg",
+      created_at: "2024-10-05T02:53:38.000000Z",
+    },
+    {
+      id: 2,
+      name: "Ubaid",
+      email: "ubaid@delcom.org",
+      photo: null,
+      created_at: "2024-10-05T03:18:14.000000Z",
+    },
+    {
+      id: 3,
+      name: "",
+      email: "",
+      photo: null,
+      created_at: "2024-10-05T03:18:14.000000Z",
+    },
+  ];
+
+  it("should render users list, fallback initial avatar, and search users", async () => {
+    vi.spyOn(usersStore, "asyncSetUsers").mockImplementation(() => Promise.resolve());
+    const { wrapper } = renderWithProviders(UsersPage, {
+      preloadedState: {
+        users: mockUsers,
+      },
+    });
+
+    expect(wrapper.text()).toContain("Semua Pengguna");
+    expect(wrapper.text()).toContain("Abdullah");
+    expect(wrapper.text()).toContain("Ubaid");
+    expect(wrapper.text()).toContain("U"); // initial avatar fallback
+
+    const searchInput = wrapper.find('[data-testid="search-user-input"]');
+
+    // Search by name
+    await searchInput.setValue("abdullah");
+    expect(wrapper.text()).toContain("Abdullah");
+    expect(wrapper.text()).not.toContain("Ubaid");
+
+    // Search by email
+    await searchInput.setValue("ubaid@delcom");
+    expect(wrapper.text()).toContain("Ubaid");
+    expect(wrapper.text()).not.toContain("Abdullah");
+
+    // Search with non-matching query
+    await searchInput.setValue("nonexistentquery");
+    expect(wrapper.text()).toContain("Tidak ada data pengguna ditemukan.");
   });
 
-  it("menampilkan pesan error", () => {
-    usersError.set("Gagal memuat");
-    renderWithProviders(UsersPage, { path: "/users" });
-    expect(screen.getByRole("alert")).toHaveTextContent("Gagal memuat");
+  it("should handle state when users in store is null", async () => {
+    vi.spyOn(usersStore, "asyncSetUsers").mockImplementation(() => Promise.resolve());
+    const { wrapper } = renderWithProviders(UsersPage, {
+      preloadedState: {
+        users: null,
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(wrapper.text()).toContain("Semua Pengguna");
+    expect(wrapper.text()).toContain("Tidak ada data pengguna ditemukan.");
   });
 
-  it("menampilkan pesan kosong", () => {
-    renderWithProviders(UsersPage, { path: "/users" });
-    expect(screen.getByText("Pengguna tidak ditemukan.")).toBeInTheDocument();
+  it("should show empty state when no users found and not loading", async () => {
+    vi.spyOn(usersStore, "asyncSetUsers").mockImplementation(() => Promise.resolve());
+    const { wrapper } = renderWithProviders(UsersPage, {
+      preloadedState: {
+        users: [],
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(wrapper.text()).toContain("Tidak ada data pengguna ditemukan.");
   });
 
-  it("menampilkan daftar dengan foto asli dan foto bawaan", () => {
-    users.set(data);
-    renderWithProviders(UsersPage, { path: "/users" });
-    expect(screen.getByText("ana@x.id")).toBeInTheDocument();
-    expect(screen.getByAltText("Ana")).toHaveAttribute("src", `${origin}/img/a.png`);
-    expect(screen.getByAltText("Budi")).toHaveAttribute("src", `${origin}/default/img/user.png`);
-  });
+  it("should show loading indicator while users are being fetched", async () => {
+    let resolveLoad;
+    const pendingPromise = new Promise((resolve) => {
+      resolveLoad = resolve;
+    });
 
-  it("memfilter lewat pencarian", async () => {
-    users.set(data);
-    renderWithProviders(UsersPage, { path: "/users" });
-    const search = screen.getByLabelText("Cari pengguna");
+    vi.spyOn(usersStore, "asyncSetUsers").mockReturnValue(pendingPromise);
 
-    await fireEvent.input(search, { target: { value: "budi" } });
-    expect(screen.queryByText("Ana")).not.toBeInTheDocument();
-    expect(screen.getByText("Budi")).toBeInTheDocument();
+    const { wrapper } = renderWithProviders(UsersPage, {
+      preloadedState: {
+        users: [],
+      },
+    });
 
-    await fireEvent.input(search, { target: { value: "zzz" } });
-    expect(screen.getByText("Pengguna tidak ditemukan.")).toBeInTheDocument();
+    // loading is true while promise is pending and filteredUsers is empty
+    expect(wrapper.text()).toContain("Memuat daftar pengguna...");
+
+    resolveLoad();
+    await pendingPromise;
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(wrapper.text()).not.toContain("Memuat daftar pengguna...");
   });
 });

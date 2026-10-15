@@ -16,24 +16,23 @@ export default defineConfig(({ mode }) => {
       svelteTesting(),
     ],
     server: {
-      port: Number(env.APP_PORT) || 3000,
+      port: Number(env.APP_PORT) || 3004,
     },
     preview: {
-      port: Number(env.APP_PORT) || 3000,
+      port: Number(env.APP_PORT) || 3004,
     },
     build: {
       chunkSizeWarningLimit: 1500,
     },
     define: {
       DELCOM_BASEURL: JSON.stringify(
-        env.VITE_DELCOM_BASEURL || "http://localhost:8000/api/v1",
+        env.VITE_DELCOM_BASEURL || "https://open-api.delcom.org/api/v1"
       ),
     },
     test: {
       globals: true,
       environment: "jsdom",
       setupFiles: "./src/setupTests.js",
-      maxWorkers: 2,
       coverage: {
         provider: "v8",
         reporter: ["text", "json", "html", "lcov"],

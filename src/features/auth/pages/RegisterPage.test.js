@@ -1,99 +1,73 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/svelte";
-import { get } from "svelte/store";
-import { renderWithProviders } from "../../../test-utils.js";
-import { currentPath } from "../../../router.js";
-
-vi.mock("../states/authStore.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  register: vi.fn(),
-}));
-vi.mock("../../../helpers/toolsHelper.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  showErrorDialog: vi.fn(),
-  showSuccessDialog: vi.fn(),
-}));
-
 import RegisterPage from "./RegisterPage.svelte";
-import { register, authLoading } from "../states/authStore.js";
-import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper.js";
-
-const fill = async ({ name = "", email = "", password = "", confirmation = "" }) => {
-  await fireEvent.input(screen.getByLabelText("Nama"), { target: { value: name } });
-  await fireEvent.input(screen.getByLabelText("Email"), { target: { value: email } });
-  await fireEvent.input(screen.getByLabelText("Kata sandi"), { target: { value: password } });
-  await fireEvent.input(screen.getByLabelText("Konfirmasi kata sandi"), { target: { value: confirmation } });
-};
-const submit = () => screen.getByRole("button", { name: "Daftar" }).click();
-const expectAlert = (text) =>
-  waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(text));
-
-beforeEach(() => {
-  vi.resetAllMocks();
-  authLoading.set(false);
-});
+import { renderWithProviders } from "../../../test-utils";
+import * as toolsHelper from "../../../helpers/toolsHelper";
+import * as routerModule from "../../../router";
 
 describe("RegisterPage", () => {
-  it("menolak kolom kosong", async () => {
-    renderWithProviders(RegisterPage, { path: "/auth/register" });
-    submit();
-    await expectAlert("Semua kolom wajib diisi.");
-    expect(register).not.toHaveBeenCalled();
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it("menolak email tidak valid", async () => {
-    renderWithProviders(RegisterPage, { path: "/auth/register" });
-    await fill({ name: "Ana", email: "salah", password: "123456", confirmation: "123456" });
-    submit();
-    await expectAlert("Format email tidak valid.");
+  it("should show error when name is empty", async () => {
+    const errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
+    const { wrapper } = renderWithProviders(RegisterPage);
+
+    await wrapper.find("form").trigger("submit");
+    expect(errorSpy).toHaveBeenCalledWith("Nama lengkap wajib diisi!");
   });
 
-  it("menolak kata sandi pendek", async () => {
-    renderWithProviders(RegisterPage, { path: "/auth/register" });
-    await fill({ name: "Ana", email: "a@b.co", password: "123", confirmation: "123" });
-    submit();
-    await expectAlert("Kata sandi minimal 6 karakter.");
+  it("should show error when email is empty", async () => {
+    const errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
+    const { wrapper } = renderWithProviders(RegisterPage);
+
+    await wrapper.find('[data-testid="register-name-input"]').setValue("Abdul");
+    await wrapper.find("form").trigger("submit");
+    expect(errorSpy).toHaveBeenCalledWith("Email wajib diisi!");
   });
 
-  it("menolak konfirmasi yang berbeda", async () => {
-    renderWithProviders(RegisterPage, { path: "/auth/register" });
-    await fill({ name: "Ana", email: "a@b.co", password: "123456", confirmation: "654321" });
-    submit();
-    await expectAlert("Konfirmasi kata sandi tidak sama.");
-    expect(register).not.toHaveBeenCalled();
+  it("should show error when password is empty", async () => {
+    const errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
+    const { wrapper } = renderWithProviders(RegisterPage);
+
+    await wrapper.find('[data-testid="register-name-input"]').setValue("Abdul");
+    await wrapper.find('[data-testid="register-email-input"]').setValue("abdul@del.org");
+    await wrapper.find("form").trigger("submit");
+    expect(errorSpy).toHaveBeenCalledWith("Kata sandi wajib diisi!");
   });
 
-  it("daftar sukses lalu pindah ke login", async () => {
-    register.mockResolvedValue({ ok: true, message: "Berhasil mendaftar" });
-    renderWithProviders(RegisterPage, { path: "/auth/register" });
-    await fill({ name: " Ana ", email: " a@b.co ", password: "123456", confirmation: "123456" });
-    submit();
+  it("should show error when password confirmation does not match", async () => {
+    const errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
+    const { wrapper } = renderWithProviders(RegisterPage);
 
-    await waitFor(() => expect(get(currentPath)).toBe("/auth/login"));
-    expect(register).toHaveBeenCalledWith({ name: "Ana", email: "a@b.co", password: "123456" });
-    expect(showSuccessDialog).toHaveBeenCalledWith("Berhasil mendaftar");
+    await wrapper.find('[data-testid="register-name-input"]').setValue("Abdul");
+    await wrapper.find('[data-testid="register-email-input"]').setValue("abdul@del.org");
+    await wrapper.find('[data-testid="register-password-input"]').setValue("pass1");
+    await wrapper.find('[data-testid="register-password-confirm-input"]').setValue("pass2");
+    await wrapper.find("form").trigger("submit");
+    expect(errorSpy).toHaveBeenCalledWith("Konfirmasi kata sandi tidak cocok!");
   });
 
-  it("menampilkan dialog error saat daftar gagal", async () => {
-    register.mockResolvedValue({ ok: false, message: "Email dipakai" });
-    renderWithProviders(RegisterPage, { path: "/auth/register" });
-    await fill({ name: "Ana", email: "a@b.co", password: "123456", confirmation: "123456" });
-    submit();
+  it("should submit form successfully when fields are valid", async () => {
+    const { wrapper, authStore } = renderWithProviders(RegisterPage);
+    const registerSpy = vi.spyOn(authStore, "asyncSetIsAuthRegister").mockResolvedValue();
 
-    await waitFor(() => expect(showErrorDialog).toHaveBeenCalledWith("Email dipakai"));
-    expect(showSuccessDialog).not.toHaveBeenCalled();
-    expect(get(currentPath)).toBe("/auth/register");
+    await wrapper.find('[data-testid="register-name-input"]').setValue("Abdul");
+    await wrapper.find('[data-testid="register-email-input"]').setValue("abdul@del.org");
+    await wrapper.find('[data-testid="register-password-input"]').setValue("pass123");
+    await wrapper.find('[data-testid="register-password-confirm-input"]').setValue("pass123");
+    await wrapper.find("form").trigger("submit");
+
+    expect(registerSpy).toHaveBeenCalledWith("Abdul", "abdul@del.org", "pass123");
   });
 
-  it("menampilkan status memproses", () => {
-    authLoading.set(true);
-    renderWithProviders(RegisterPage, { path: "/auth/register" });
-    expect(screen.getByRole("button", { name: "Memproses..." })).toBeDisabled();
-  });
+  it("should navigate to /auth/login when registration succeeds", async () => {
+    const navSpy = vi.spyOn(routerModule, "navigate").mockImplementation(() => {});
+    const { authStore } = renderWithProviders(RegisterPage);
 
-  it("tautan Masuk pindah ke halaman login", async () => {
-    renderWithProviders(RegisterPage, { path: "/auth/register" });
-    screen.getByRole("link", { name: "Masuk" }).click();
-    await waitFor(() => expect(get(currentPath)).toBe("/auth/login"));
+    authStore.setIsAuthRegister(true);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(navSpy).toHaveBeenCalledWith("/auth/login");
   });
 });

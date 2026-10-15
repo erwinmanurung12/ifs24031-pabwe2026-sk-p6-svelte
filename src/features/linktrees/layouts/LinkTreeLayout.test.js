@@ -1,45 +1,107 @@
-import { describe, it, expect } from "vitest";
-import { screen, waitFor } from "@testing-library/svelte";
-import { createRawSnippet } from "svelte";
-import { renderWithProviders } from "../../../test-utils.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import LinkTreeLayout from "./LinkTreeLayout.svelte";
-
-const children = createRawSnippet(() => ({ render: () => "<p>Isi halaman</p>" }));
-const render = () =>
-  renderWithProviders(LinkTreeLayout, {
-    path: "/",
-    authToken: "t",
-    user: { id: 1, name: "Ana", email: "a@x.id", photo: null },
-    props: { children },
-  });
+import { renderWithProviders } from "../../../test-utils";
+import { usersStore } from "../../users/states/usersStore";
+import apiHelper from "../../../helpers/apiHelper";
+import * as routerModule from "../../../router";
 
 describe("LinkTreeLayout", () => {
-  it("merender navbar, sidebar, dan konten", () => {
-    render();
-    expect(screen.getByRole("banner")).toBeInTheDocument();
-    expect(screen.getByRole("complementary")).toBeInTheDocument();
-    expect(screen.getByText("Isi halaman")).toBeInTheDocument();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(usersStore, "asyncSetProfile").mockImplementation(() => Promise.resolve());
   });
 
-  it("membuka dan menutup sidebar lewat tombol menu", async () => {
-    render();
-    const aside = screen.getByRole("complementary");
-    expect(aside).toHaveClass("-translate-x-full");
+  it("should redirect to login if access token does not exist", () => {
+    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue(null);
+    const navSpy = vi.spyOn(routerModule, "navigate").mockImplementation(() => {});
 
-    screen.getByRole("button", { name: "Buka menu" }).click();
-    await waitFor(() => expect(aside).not.toHaveClass("-translate-x-full"));
+    const { wrapper } = renderWithProviders(LinkTreeLayout, {
+      preloadedState: { profile: null },
+    });
 
-    screen.getByRole("button", { name: "Buka menu" }).click();
-    await waitFor(() => expect(aside).toHaveClass("-translate-x-full"));
+    expect(navSpy).toHaveBeenCalledWith("/auth/login");
+    expect(wrapper.text()).toContain("Memuat sesi pengguna...");
   });
 
-  it("menutup sidebar setelah memilih menu", async () => {
-    render();
-    const aside = screen.getByRole("complementary");
-    screen.getByRole("button", { name: "Buka menu" }).click();
-    await waitFor(() => expect(aside).not.toHaveClass("-translate-x-full"));
+  it("should fetch profile when token exists", () => {
+    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue("valid-token");
+    const spy = vi.spyOn(usersStore, "asyncSetProfile").mockImplementation(() => Promise.resolve());
 
-    screen.getByRole("link", { name: "Pengguna" }).click();
-    await waitFor(() => expect(aside).toHaveClass("-translate-x-full"));
+    renderWithProviders(LinkTreeLayout, { preloadedState: { profile: null } });
+
+    expect(spy).toHaveBeenCalled();
+  });
+
+  it("should render navbar and sidebar, toggle sidebar and logout", async () => {
+    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue("valid-token");
+    vi.spyOn(routerModule, "navigate").mockImplementation(() => {});
+
+    const { wrapper, authStore } = renderWithProviders(LinkTreeLayout, {
+      preloadedState: {
+        profile: { id: 1, name: "Test User", email: "test@delcom.org" },
+      },
+    });
+
+    expect(wrapper.text()).toContain("Delcom Link Tree");
+    expect(wrapper.text()).toContain("Test User");
+    expect(wrapper.text()).toContain("Semua Link Tree");
+
+    await wrapper.find('[data-testid="toggle-sidebar-btn"]').trigger("click");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(wrapper.find('[data-testid="sidebar-backdrop"]').exists()).toBe(true);
+
+    await wrapper.find('[data-testid="sidebar-backdrop"]').trigger("click");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(wrapper.find('[data-testid="sidebar-backdrop"]').exists()).toBe(false);
+
+    const logoutSpy = vi.spyOn(authStore, "asyncSetIsAuthLogout").mockImplementation(() => {});
+    await wrapper.find('[data-testid="profile-dropdown-button"]').trigger("click");
+    await wrapper.find('[data-testid="dropdown-logout-button"]').trigger("click");
+
+    expect(logoutSpy).toHaveBeenCalled();
+  });
+
+  it("should stay on page when isProfile is triggered and profile exists", async () => {
+    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue("valid-token");
+
+    const { wrapper, usersStore } = renderWithProviders(LinkTreeLayout, {
+      preloadedState: { profile: { id: 1, name: "Logged User" }, isProfile: false },
+    });
+
+    usersStore.setIsProfile(true);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(wrapper.text()).toContain("Logged User");
+  });
+
+  it("should redirect to login when isProfile is triggered and profile is null", async () => {
+    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue("valid-token");
+    const putTokenSpy = vi.spyOn(apiHelper, "putAccessToken").mockImplementation(() => {});
+    const navSpy = vi.spyOn(routerModule, "navigate").mockImplementation(() => {});
+
+    const { usersStore } = renderWithProviders(LinkTreeLayout, {
+      preloadedState: { profile: null, isProfile: false },
+    });
+    vi.spyOn(usersStore, "asyncSetProfile").mockImplementation(() => Promise.resolve());
+
+    usersStore.setIsProfile(true);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(putTokenSpy).toHaveBeenCalledWith("");
+    expect(navSpy).toHaveBeenCalledWith("/auth/login");
+  });
+
+  it("should redirect to login when isAuthLogout is true", async () => {
+    vi.spyOn(apiHelper, "getAccessToken").mockReturnValue("valid-token");
+    const navSpy = vi.spyOn(routerModule, "navigate").mockImplementation(() => {});
+
+    const { authStore } = renderWithProviders(LinkTreeLayout, {
+      preloadedState: { profile: { id: 1, name: "Logged User" }, isAuthLogout: false },
+    });
+
+    authStore.setIsAuthLogout(true);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(navSpy).toHaveBeenCalledWith("/auth/login");
   });
 });

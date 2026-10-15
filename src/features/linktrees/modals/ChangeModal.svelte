@@ -1,77 +1,165 @@
 <script>
-  import Modal from "../components/Modal.svelte";
-  import { useInput } from "../../../hooks/useInput.js";
-  import { changeLinkTree, isChanging } from "../states/linkTreesStore.js";
-  import { showSuccessDialog, showErrorDialog } from "../../../helpers/toolsHelper.js";
-  import { inputClass, labelClass, primaryButton, secondaryButton } from "../../../helpers/styles.js";
+  import { PenLine, X, LoaderCircle } from "lucide-svelte";
+  import { linkTreesStore } from "../states/linkTreesStore";
+  import { showErrorDialog } from "../../../helpers/toolsHelper";
 
-  let { open = false, linkTree, onClose } = $props();
+  export let show = false;
+  export let linkTree = null;
+  export let onClose = undefined;
 
-  const { value: title } = useInput("");
-  const { value: type } = useInput("public");
-  const { value: description } = useInput("");
-  let errorText = $state("");
+  let loading = false;
+  let title = "";
+  let type = "public";
+  let description = "";
 
-  $effect(() => {
-    if (open) {
-      title.set(linkTree.title);
-      type.set(linkTree.type);
-      description.set(linkTree.description);
-      errorText = "";
+  function handleClose() {
+    if (onClose) onClose();
+  }
+
+  function populate(source) {
+    title = source.title;
+    type = source.type;
+    description = source.description || "";
+  }
+
+  $: if (show && linkTree) {
+    populate(linkTree);
+  }
+
+  $: if ($linkTreesStore.isLinkTreeChange) {
+    const isSuccess = $linkTreesStore.isLinkTreeChanged;
+    loading = false;
+    linkTreesStore.setIsLinkTreeChange(false);
+    if (isSuccess) {
+      linkTreesStore.setIsLinkTreeChanged(false);
+      linkTreesStore.asyncSetLinkTree(linkTree.id);
+      handleClose();
     }
-  });
+  }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-    if (!$title.trim() || !$description.trim()) {
-      errorText = "Judul dan deskripsi wajib diisi.";
+  function handleSave() {
+    if (!title.trim()) {
+      showErrorDialog("Judul tidak boleh kosong");
       return;
     }
-    errorText = "";
 
-    const result = await changeLinkTree(linkTree.id, {
-      title: $title.trim(),
-      type: $type,
-      description: $description.trim(),
-    });
-
-    if (result.ok) {
-      await showSuccessDialog(result.message);
-      onClose();
-    } else {
-      await showErrorDialog(result.message);
+    if (!description.trim()) {
+      showErrorDialog("Deskripsi tidak boleh kosong");
+      return;
     }
+
+    loading = true;
+    linkTreesStore.asyncSetIsLinkTreeChange(
+      linkTree.id,
+      title.trim(),
+      type,
+      description.trim()
+    );
   }
 </script>
 
-<Modal {open} title="Ubah Link Tree" {onClose}>
-  <form class="space-y-4" onsubmit={handleSubmit} novalidate>
-    <div>
-      <label class={labelClass} for="change-title">Judul</label>
-      <input id="change-title" type="text" class={inputClass} bind:value={$title} />
-    </div>
-    <div>
-      <label class={labelClass} for="change-type">Jenis</label>
-      <select id="change-type" class={inputClass} bind:value={$type}>
-        <option value="public">Publik</option>
-        <option value="unlisted">Tidak Terdaftar</option>
-        <option value="private">Privat</option>
-      </select>
-    </div>
-    <div>
-      <label class={labelClass} for="change-description">Deskripsi</label>
-      <textarea id="change-description" rows="3" class={inputClass} bind:value={$description}></textarea>
-    </div>
+{#if show && linkTree}
+  <div
+    data-testid="change-link-tree-modal"
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50"
+  >
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="change-link-tree-heading"
+      class="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
+    >
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-900 flex items-center justify-center">
+            <PenLine size={18} strokeWidth={2.5} />
+          </div>
+          <h2 id="change-link-tree-heading" class="text-base font-bold text-slate-900">
+            Ubah Data Link Tree
+          </h2>
+        </div>
+        <button
+          type="button"
+          data-testid="close-change-modal-btn"
+          on:click={handleClose}
+          aria-label="Tutup modal ubah data"
+          class="p-2 rounded-xl text-slate-700 hover:bg-slate-200 transition-colors"
+        >
+          <X size={20} />
+        </button>
+      </div>
 
-    {#if errorText}
-      <p class="text-sm text-rose-600" role="alert">{errorText}</p>
-    {/if}
+      <form on:submit|preventDefault={handleSave} class="p-6 space-y-4">
+        <div>
+          <label for="change-link-tree-title-input" class="block text-sm font-semibold text-slate-800 mb-1.5">
+            Judul
+          </label>
+          <input
+            id="change-link-tree-title-input"
+            type="text"
+            data-testid="change-link-tree-title-input"
+            bind:value={title}
+            class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-600 text-sm"
+            required
+          />
+        </div>
 
-    <div class="flex justify-end gap-2">
-      <button type="button" class={secondaryButton} onclick={onClose}>Batal</button>
-      <button type="submit" class={primaryButton} disabled={$isChanging}>
-        {$isChanging ? "Menyimpan..." : "Simpan perubahan"}
-      </button>
+        <div>
+          <label for="change-link-tree-type-select" class="block text-sm font-semibold text-slate-800 mb-1.5">
+            Tipe
+          </label>
+          <select
+            id="change-link-tree-type-select"
+            data-testid="change-link-tree-type-select"
+            bind:value={type}
+            class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-600 text-sm"
+          >
+            <option value="public">Publik</option>
+            <option value="unlisted">Tidak Terdaftar</option>
+            <option value="private">Privat</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="change-link-tree-description-input" class="block text-sm font-semibold text-slate-800 mb-1.5">
+            Deskripsi
+          </label>
+          <textarea
+            id="change-link-tree-description-input"
+            data-testid="change-link-tree-description-input"
+            bind:value={description}
+            rows="4"
+            class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-600 text-sm"
+            required
+          ></textarea>
+        </div>
+
+        <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
+          <button
+            type="button"
+            data-testid="cancel-change-modal-btn"
+            on:click={handleClose}
+            disabled={loading}
+            class="px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            data-testid="submit-change-modal-btn"
+            disabled={loading}
+            class="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors disabled:opacity-60"
+          >
+            {#if loading}
+              <LoaderCircle size={18} class="animate-spin" />
+              <span>Menyimpan...</span>
+            {:else}
+              <PenLine size={18} strokeWidth={2.5} />
+              <span>Simpan Perubahan</span>
+            {/if}
+          </button>
+        </div>
+      </form>
     </div>
-  </form>
-</Modal>
+  </div>
+{/if}

@@ -1,320 +1,235 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor, within } from "@testing-library/svelte";
-import { get } from "svelte/store";
-import { renderWithProviders } from "../../../test-utils.js";
-import { currentPath } from "../../../router.js";
-
-vi.mock("../states/linkTreesStore.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  fetchLinkTree: vi.fn(),
-  clearLinkTree: vi.fn(),
-  removeLinkTree: vi.fn(),
-  removeItem: vi.fn(),
-  changeCover: vi.fn(),
-  addItem: vi.fn(),
-}));
-vi.mock("../../../helpers/toolsHelper.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  showConfirmDialog: vi.fn(),
-  showSuccessDialog: vi.fn(),
-  showErrorDialog: vi.fn(),
-}));
-
 import DetailPage from "./DetailPage.svelte";
-import {
-  linkTree,
-  linkTreeError,
-  fetchLinkTree,
-  clearLinkTree,
-  removeLinkTree,
-  removeItem,
-  changeCover,
-  addItem,
-} from "../states/linkTreesStore.js";
-import {
-  showConfirmDialog,
-  showSuccessDialog,
-  showErrorDialog,
-} from "../../../helpers/toolsHelper.js";
+import { renderWithProviders } from "../../../test-utils";
+import * as toolsHelper from "../../../helpers/toolsHelper";
+import * as router from "../../../router";
+import { linkTreesStore } from "../states/linkTreesStore";
 
-const detail = (over = {}) => ({
-  id: 5,
-  user_id: 1,
-  title: "Tautan Saya",
-  description: "Deskripsi detail",
-  type: "public",
-  cover: "http://x.test/img/c.jpg",
-  created_at: "2025-03-09T01:32:33.000000Z",
-  author: { name: "Ana" },
-  items: [{ id: 9, title: "GitHub", url: "https://github.com" }],
-  ...over,
-});
-const owner = { id: 1, name: "Ana", email: "a@x.id", photo: null };
-const stranger = { id: 2, name: "Budi", email: "b@x.id", photo: null };
+const wait = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 
-const render = (user = owner, params = { linkTreeId: "5" }) =>
-  renderWithProviders(DetailPage, {
-    path: "/link-trees/5",
-    authToken: "t",
-    user,
-    props: { params },
-  });
-
-beforeEach(() => {
-  vi.resetAllMocks();
-  linkTree.set(null);
-  linkTreeError.set(null);
-});
-
-describe("DetailPage - pemuatan", () => {
-  it("memuat detail, menampilkan loading, lalu membersihkan saat dilepas", () => {
-    const { unmount } = render();
-    expect(fetchLinkTree).toHaveBeenCalledWith("5");
-    expect(screen.getByText("Memuat detail...")).toBeInTheDocument();
-    unmount();
-    expect(clearLinkTree).toHaveBeenCalled();
-  });
-
-  it("memuat ulang saat parameter berubah", async () => {
-    const { rerender } = render();
-    await rerender({ params: { linkTreeId: "6" } });
-    await waitFor(() => expect(fetchLinkTree).toHaveBeenLastCalledWith("6"));
-  });
-
-  it("menampilkan error bila detail tidak ada", () => {
-    linkTreeError.set("Tidak ditemukan");
-    render();
-    expect(screen.getByRole("alert")).toHaveTextContent("Tidak ditemukan");
-  });
-
-  it("tetap menampilkan detail bila ada error tetapi data masih ada", () => {
-    linkTree.set(detail());
-    linkTreeError.set("Gagal menyegarkan");
-    render();
-    expect(
-      screen.getByRole("heading", { name: "Tautan Saya" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  });
-
-  it("kembali ke beranda lewat tautan Kembali", async () => {
-    render();
-    screen.getByRole("link", { name: "Kembali" }).click();
-    await waitFor(() => expect(get(currentPath)).toBe("/"));
-  });
-});
-
-describe("DetailPage - konten", () => {
-  it("menampilkan detail, cover, dan tautan untuk pemilik", () => {
-    linkTree.set(detail());
-    render();
-    expect(screen.getByAltText("Cover Tautan Saya")).toBeInTheDocument();
-    expect(screen.getByText(/Oleh Ana/)).toBeInTheDocument();
-    expect(screen.getByText("Deskripsi detail")).toBeInTheDocument();
-    expect(screen.getByText("Tautan (1)")).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: /GitHub/ });
-    expect(link).toHaveAttribute("href", "https://github.com");
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(
-      screen.getByRole("button", { name: "Ubah Data" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Tambah Tautan" }),
-    ).toBeInTheDocument();
-  });
-
-  it("menyembunyikan aksi bagi non-pemilik", () => {
-    linkTree.set(detail());
-    render(stranger);
-    expect(
-      screen.queryByRole("button", { name: "Ubah Data" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Tambah Tautan" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Ubah GitHub" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("menyembunyikan aksi saat profil belum dimuat", () => {
-    linkTree.set(detail());
-    render(null);
-    expect(
-      screen.queryByRole("button", { name: "Ubah Data" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("memakai gradien tanpa cover dan menangani item kosong", () => {
-    linkTree.set(detail({ cover: "", items: undefined }));
-    render();
-    expect(screen.queryByAltText("Cover Tautan Saya")).not.toBeInTheDocument();
-    expect(screen.getByText("Tautan (0)")).toBeInTheDocument();
-    expect(screen.getByText("Belum ada tautan.")).toBeInTheDocument();
-  });
-});
-
-describe("DetailPage - modal", () => {
-  beforeEach(() => linkTree.set(detail()));
-
-  const closeDialog = async () => {
-    within(screen.getByRole("dialog"))
-      .getByRole("button", { name: "Batal" })
-      .click();
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
-    );
+describe("DetailPage", () => {
+  const mockProfile = { id: 1, name: "Abdullah", email: "abdul@del.org" };
+  const mockLinkTree = {
+    id: 1,
+    title: "Kursus Ku",
+    type: "public",
+    description: "Kumpulan kursus",
+    cover: "https://example.com/cover.jpg",
+    created_at: "2024-02-26T02:34:26.000000Z",
+    updated_at: "2024-02-26T02:44:47.000000Z",
+    items: [
+      { id: 7, link_tree_id: 1, title: "Dasar Java", url: "https://youtu.be/abc" },
+      { id: 8, link_tree_id: 1, title: "Dasar Svelte", url: "https://svelte.dev" },
+    ],
   };
 
-  it("membuka dan menutup modal ubah data", async () => {
-    render();
-    screen.getByRole("button", { name: "Ubah Data" }).click();
-    expect(
-      await screen.findByRole("heading", { name: "Ubah Link Tree" }),
-    ).toBeInTheDocument();
-    await closeDialog();
+  let detailSpy;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    detailSpy = vi.spyOn(linkTreesStore, "asyncSetLinkTree").mockResolvedValue();
   });
 
-  it("membuka dan menutup modal ubah cover", async () => {
-    render();
-    screen.getByRole("button", { name: "Ubah Cover" }).click();
-    expect(
-      await screen.findByRole("heading", { name: "Ubah Cover" }),
-    ).toBeInTheDocument();
-    await closeDialog();
-  });
-
-  it("membuka modal ubah tautan lalu modal tambah tautan", async () => {
-    render();
-    screen.getByRole("button", { name: "Ubah GitHub" }).click();
-    expect(
-      await screen.findByRole("heading", { name: "Ubah Tautan" }),
-    ).toBeInTheDocument();
-    await closeDialog();
-
-    screen.getByRole("button", { name: "Tambah Tautan" }).click();
-    expect(
-      await screen.findByRole("heading", { name: "Tambah Tautan" }),
-    ).toBeInTheDocument();
-    await closeDialog();
-  });
-});
-
-describe("DetailPage - mengirim modal", () => {
-  beforeEach(() => linkTree.set(detail()));
-
-  it("mengunggah cover dengan id Link Tree yang sedang dibuka", async () => {
-    changeCover.mockResolvedValue({ ok: true, message: "Cover diubah" });
-    render();
-    screen.getByRole("button", { name: "Ubah Cover" }).click();
-    const dialog = await screen.findByRole("dialog");
-
-    const file = new File(["x"], "c.png", { type: "image/png" });
-    await fireEvent.change(within(dialog).getByLabelText("Gambar cover"), {
-      target: { files: [file] },
+  it("should render loading state if profile or link tree is missing", () => {
+    const noProfile = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: null, linkTree: null },
     });
-    within(dialog).getByRole("button", { name: "Unggah" }).click();
+    expect(noProfile.wrapper.text()).toContain("Memuat detail link tree...");
 
-    await waitFor(() => expect(changeCover).toHaveBeenCalledWith(5, file));
-    await waitFor(() =>
-      expect(showSuccessDialog).toHaveBeenCalledWith("Cover diubah"),
-    );
-  });
-
-  it("menambah tautan dengan id Link Tree yang sedang dibuka", async () => {
-    addItem.mockResolvedValue({ ok: true, message: "Tautan ditambah" });
-    render();
-    screen.getByRole("button", { name: "Tambah Tautan" }).click();
-    const dialog = await screen.findByRole("dialog");
-
-    await fireEvent.input(within(dialog).getByLabelText("Judul tautan"), {
-      target: { value: "Situs" },
+    const noLinkTree = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: null },
     });
-    await fireEvent.input(within(dialog).getByLabelText("URL"), {
-      target: { value: "https://situs.test" },
+    expect(noLinkTree.wrapper.find("h1").exists()).toBe(false);
+  });
+
+  it("should not fetch on mount when linkTreeId is not provided", () => {
+    renderWithProviders(DetailPage, {
+      props: { linkTreeId: null },
+      preloadedState: { profile: mockProfile, linkTree: null },
     });
-    within(dialog).getByRole("button", { name: "Simpan" }).click();
 
-    await waitFor(() =>
-      expect(addItem).toHaveBeenCalledWith(5, {
-        title: "Situs",
-        url: "https://situs.test",
-      }),
-    );
-    await waitFor(() =>
-      expect(showSuccessDialog).toHaveBeenCalledWith("Tautan ditambah"),
-    );
-  });
-});
-
-describe("DetailPage - hapus tautan", () => {
-  beforeEach(() => linkTree.set(detail()));
-
-  it("membatalkan bila konfirmasi ditolak", async () => {
-    showConfirmDialog.mockResolvedValue(false);
-    render();
-    screen.getByRole("button", { name: "Hapus GitHub" }).click();
-    await waitFor(() => expect(showConfirmDialog).toHaveBeenCalled());
-    expect(removeItem).not.toHaveBeenCalled();
+    expect(detailSpy).not.toHaveBeenCalled();
   });
 
-  it("menghapus tautan dan menampilkan dialog sukses", async () => {
-    showConfirmDialog.mockResolvedValue(true);
-    removeItem.mockResolvedValue({ ok: true, message: "Tautan dihapus" });
-    render();
-    screen.getByRole("button", { name: "Hapus GitHub" }).click();
-    await waitFor(() =>
-      expect(showSuccessDialog).toHaveBeenCalledWith("Tautan dihapus"),
-    );
-    expect(removeItem).toHaveBeenCalledWith(5, 9);
-  });
-
-  it("menampilkan dialog error saat gagal", async () => {
-    showConfirmDialog.mockResolvedValue(true);
-    removeItem.mockResolvedValue({ ok: false, message: "Gagal hapus tautan" });
-    render();
-    screen.getByRole("button", { name: "Hapus GitHub" }).click();
-    await waitFor(() =>
-      expect(showErrorDialog).toHaveBeenCalledWith("Gagal hapus tautan"),
-    );
-  });
-});
-
-describe("DetailPage - hapus Link Tree", () => {
-  beforeEach(() => linkTree.set(detail()));
-
-  it("membatalkan bila konfirmasi ditolak", async () => {
-    showConfirmDialog.mockResolvedValue(false);
-    render();
-    screen.getByRole("button", { name: "Hapus" }).click();
-    await waitFor(() => expect(showConfirmDialog).toHaveBeenCalled());
-    expect(removeLinkTree).not.toHaveBeenCalled();
-  });
-
-  it("menghapus lalu kembali ke beranda", async () => {
-    showConfirmDialog.mockResolvedValue(true);
-    removeLinkTree.mockResolvedValue({
-      ok: true,
-      message: "Link Tree dihapus",
+  it("should fetch detail on mount", () => {
+    renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
     });
-    render();
-    screen.getByRole("button", { name: "Hapus" }).click();
-    await waitFor(() => expect(get(currentPath)).toBe("/"));
-    expect(removeLinkTree).toHaveBeenCalledWith(5);
-    expect(showSuccessDialog).toHaveBeenCalledWith("Link Tree dihapus");
+
+    expect(detailSpy).toHaveBeenCalledWith(1);
   });
 
-  it("menampilkan dialog error dan tetap di halaman saat gagal", async () => {
-    showConfirmDialog.mockResolvedValue(true);
-    removeLinkTree.mockResolvedValue({
-      ok: false,
-      message: "Gagal hapus tree",
+  it("should render detail, cover and items with accessible names", () => {
+    const { wrapper } = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
     });
-    render();
-    screen.getByRole("button", { name: "Hapus" }).click();
-    await waitFor(() =>
-      expect(showErrorDialog).toHaveBeenCalledWith("Gagal hapus tree"),
+
+    expect(wrapper.find("h1").text()).toBe("Kursus Ku");
+    expect(wrapper.find("h2").text()).toBe("Daftar Tautan");
+    expect(wrapper.text()).toContain("Publik");
+    expect(wrapper.find("img").attributes("alt")).toBe("Sampul Kursus Ku");
+    expect(wrapper.find('[data-testid="link-tree-description"]').text()).toContain(
+      "Kumpulan kursus"
     );
-    expect(get(currentPath)).toBe("/link-trees/5");
+    expect(wrapper.find('[data-testid="item-row-7"] a').attributes("href")).toBe(
+      "https://youtu.be/abc"
+    );
+    expect(wrapper.find('[data-testid="edit-item-7"]').attributes("aria-label")).toBe(
+      "Ubah tautan Dasar Java"
+    );
+    expect(wrapper.find('[data-testid="delete-item-7"]').attributes("aria-label")).toBe(
+      "Hapus tautan Dasar Java"
+    );
+  });
+
+  it("should render without cover, with empty items and unknown type", () => {
+    const { wrapper } = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: {
+        profile: mockProfile,
+        linkTree: { ...mockLinkTree, cover: null, items: undefined, type: "weird" },
+      },
+    });
+
+    expect(wrapper.find("img").exists()).toBe(false);
+    expect(wrapper.find('[data-testid="empty-items"]').exists()).toBe(true);
+  });
+
+  it("should navigate back to home when the back link is clicked", async () => {
+    const navSpy = vi.spyOn(router, "navigate").mockImplementation(() => {});
+    const { wrapper } = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
+    });
+
+    await wrapper.find('[data-testid="back-to-link-trees-link"]').trigger("click");
+
+    expect(navSpy).toHaveBeenCalledWith("/");
+  });
+
+  it("should open and close the cover modal", async () => {
+    const { wrapper } = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
+    });
+
+    await wrapper.find('[data-testid="edit-cover-btn"]').trigger("click");
+    expect(wrapper.find('[data-testid="change-cover-modal"]').exists()).toBe(true);
+
+    await wrapper.find('[data-testid="close-cover-modal-btn"]').trigger("click");
+    expect(wrapper.find('[data-testid="change-cover-modal"]').exists()).toBe(false);
+  });
+
+  it("should open and close the change modal", async () => {
+    const { wrapper } = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
+    });
+
+    await wrapper.find('[data-testid="edit-detail-btn"]').trigger("click");
+    expect(wrapper.find('[data-testid="change-link-tree-modal"]').exists()).toBe(true);
+
+    await wrapper.find('[data-testid="close-change-modal-btn"]').trigger("click");
+    expect(wrapper.find('[data-testid="change-link-tree-modal"]').exists()).toBe(false);
+  });
+
+  it("should open the item modal in add and edit mode and close it", async () => {
+    const { wrapper } = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
+    });
+
+    await wrapper.find('[data-testid="add-item-btn"]').trigger("click");
+    expect(wrapper.find('[data-testid="item-modal"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="item-title-input"]').element.value).toBe("");
+
+    await wrapper.find('[data-testid="close-item-modal-btn"]').trigger("click");
+    expect(wrapper.find('[data-testid="item-modal"]').exists()).toBe(false);
+
+    await wrapper.find('[data-testid="edit-item-8"]').trigger("click");
+    expect(wrapper.find('[data-testid="item-title-input"]').element.value).toBe("Dasar Svelte");
+  });
+
+  it("should delete an item only when confirmed", async () => {
+    const deleteSpy = vi
+      .spyOn(linkTreesStore, "asyncSetIsLinkTreeItemDelete")
+      .mockResolvedValue();
+    const confirmSpy = vi.spyOn(toolsHelper, "showConfirmDialog");
+    const { wrapper } = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
+    });
+
+    confirmSpy.mockResolvedValue({ isConfirmed: false });
+    await wrapper.find('[data-testid="delete-item-7"]').trigger("click");
+    await wait();
+    expect(deleteSpy).not.toHaveBeenCalled();
+
+    confirmSpy.mockResolvedValue({ isConfirmed: true });
+    await wrapper.find('[data-testid="delete-item-7"]').trigger("click");
+    await wait();
+    expect(deleteSpy).toHaveBeenCalledWith(1, 7);
+  });
+
+  it("should reload detail only when item deletion succeeded", async () => {
+    const { linkTreesStore: store } = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
+    });
+    detailSpy.mockClear();
+
+    store.setIsLinkTreeItemDeleted(false);
+    store.setIsLinkTreeItemDelete(true);
+    await wait();
+    expect(detailSpy).not.toHaveBeenCalled();
+
+    store.setIsLinkTreeItemDeleted(true);
+    store.setIsLinkTreeItemDelete(true);
+    await wait();
+    expect(detailSpy).toHaveBeenCalledWith(1);
+  });
+
+  it("should navigate home if isLinkTree is flagged and link tree is null", async () => {
+    const navSpy = vi.spyOn(router, "navigate").mockImplementation(() => {});
+    const { linkTreesStore: store } = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: null, isLinkTree: false },
+    });
+
+    store.setIsLinkTree(true);
+    await wait();
+
+    expect(navSpy).toHaveBeenCalledWith("/");
+  });
+
+  it("should stay when isLinkTree is flagged and link tree exists", async () => {
+    const navSpy = vi.spyOn(router, "navigate").mockImplementation(() => {});
+    const { wrapper, linkTreesStore: store } = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: mockLinkTree, isLinkTree: false },
+    });
+
+    navSpy.mockClear();
+    store.setIsLinkTree(true);
+    await wait();
+
+    expect(wrapper.text()).toContain("Kursus Ku");
+    expect(navSpy).not.toHaveBeenCalled();
+  });
+
+  it("should fetch again when linkTreeId changes", async () => {
+    const { rerender } = renderWithProviders(DetailPage, {
+      props: { linkTreeId: 1 },
+      preloadedState: { profile: mockProfile, linkTree: mockLinkTree },
+    });
+
+    await rerender({ linkTreeId: 2 });
+    await wait();
+
+    expect(detailSpy).toHaveBeenCalledWith(2);
   });
 });

@@ -1,28 +1,60 @@
 <script>
-  import { Link2 } from "lucide-svelte";
+  import { onMount } from "svelte";
+  import { Link } from "lucide-svelte";
+  import { usersStore } from "../../users/states/usersStore";
+  import apiHelper from "../../../helpers/apiHelper";
+  import { currentPath, navigate } from "../../../router.js";
 
-  let { children } = $props();
+  $: isLoginActive = $currentPath === "/auth/login";
+
+  onMount(() => {
+    const authToken = apiHelper.getAccessToken();
+    if (authToken) {
+      usersStore.asyncSetProfile();
+    }
+  });
+
+  $: if ($usersStore.isProfile) {
+    usersStore.setIsProfile(false);
+    if ($usersStore.profile) {
+      navigate("/");
+    }
+  }
 </script>
 
-<div class="grid min-h-screen lg:grid-cols-2">
-  <aside class="hidden flex-col justify-center gap-6 bg-indigo-600 p-12 text-white lg:flex">
-    <div class="flex items-center gap-3">
-      <Link2 class="h-10 w-10" />
-      <span class="text-3xl font-extrabold">Delcom Link Tree</span>
+<div class="min-h-screen bg-slate-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+  <div class="sm:mx-auto sm:w-full sm:max-w-md text-center">
+    <div class="inline-flex w-14 h-14 rounded-2xl bg-indigo-600 items-center justify-center text-white shadow-xl shadow-indigo-500/25 mb-3">
+      <Link size={32} strokeWidth={2.5} />
     </div>
-    <p class="max-w-md text-lg text-indigo-100">
-      Kumpulkan semua tautan penting Anda dalam satu halaman. Bagikan kumpulan tautan secara
-      publik, tidak terdaftar, atau privat dengan mudah.
+    <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">
+      Delcom Link Tree
+    </h1>
+    <p class="mt-1 text-sm text-slate-700">
+      Kelola dan bagikan kumpulan tautan Anda dalam satu halaman.
     </p>
-  </aside>
+  </div>
 
-  <main class="flex items-center justify-center p-6">
-    <div class="w-full max-w-md">
-      <div class="mb-8 flex items-center gap-2 text-indigo-600 lg:hidden">
-        <Link2 class="h-7 w-7" />
-        <span class="text-xl font-extrabold">Delcom Link Tree</span>
+  <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
+    <div class="bg-white py-8 px-6 sm:px-10 shadow-xl shadow-slate-200/50 rounded-3xl border border-slate-200">
+      <div class="flex rounded-2xl bg-slate-100 p-1 mb-6">
+        <button
+          type="button"
+          on:click={() => navigate("/auth/login")}
+          class="flex-1 py-2 text-center text-sm font-semibold rounded-xl transition-all {isLoginActive ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-700 hover:text-slate-900'}"
+        >
+          Masuk Akun
+        </button>
+        <button
+          type="button"
+          on:click={() => navigate("/auth/register")}
+          class="flex-1 py-2 text-center text-sm font-semibold rounded-xl transition-all {!isLoginActive ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-700 hover:text-slate-900'}"
+        >
+          Daftar Baru
+        </button>
       </div>
-      {@render children()}
+
+      <slot />
     </div>
-  </main>
+  </div>
 </div>

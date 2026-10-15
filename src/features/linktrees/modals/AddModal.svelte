@@ -1,76 +1,153 @@
 <script>
-  import Modal from "../components/Modal.svelte";
-  import { useInput } from "../../../hooks/useInput.js";
-  import { addLinkTree, isAdding } from "../states/linkTreesStore.js";
-  import { showSuccessDialog, showErrorDialog } from "../../../helpers/toolsHelper.js";
-  import { inputClass, labelClass, primaryButton, secondaryButton } from "../../../helpers/styles.js";
+  import { Plus, X, LoaderCircle } from "lucide-svelte";
+  import { linkTreesStore } from "../states/linkTreesStore";
+  import { showErrorDialog } from "../../../helpers/toolsHelper";
 
-  let { open = false, onClose } = $props();
+  export let show = false;
+  export let onClose = undefined;
+  export let onSaved = undefined;
 
-  const { value: title, reset: resetTitle } = useInput("");
-  const { value: type, reset: resetType } = useInput("public");
-  const { value: description, reset: resetDescription } = useInput("");
-  let errorText = $state("");
+  let loading = false;
+  let title = "";
+  let type = "public";
+  let description = "";
 
-  function close() {
-    resetTitle();
-    resetType();
-    resetDescription();
-    errorText = "";
-    onClose();
+  function handleClose() {
+    if (onClose) onClose();
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-    if (!$title.trim() || !$description.trim()) {
-      errorText = "Judul dan deskripsi wajib diisi.";
+  $: if ($linkTreesStore.isLinkTreeAdd) {
+    const isSuccess = $linkTreesStore.isLinkTreeAdded;
+    loading = false;
+    linkTreesStore.setIsLinkTreeAdd(false);
+    if (isSuccess) {
+      linkTreesStore.setIsLinkTreeAdded(false);
+      title = "";
+      type = "public";
+      description = "";
+      if (onSaved) onSaved();
+      handleClose();
+    }
+  }
+
+  function handleSave() {
+    if (!title.trim()) {
+      showErrorDialog("Judul tidak boleh kosong");
       return;
     }
-    errorText = "";
 
-    const result = await addLinkTree({
-      title: $title.trim(),
-      type: $type,
-      description: $description.trim(),
-    });
-
-    if (result.ok) {
-      await showSuccessDialog(result.message);
-      close();
-    } else {
-      await showErrorDialog(result.message);
+    if (!description.trim()) {
+      showErrorDialog("Deskripsi tidak boleh kosong");
+      return;
     }
+
+    loading = true;
+    linkTreesStore.asyncSetIsLinkTreeAdd(title.trim(), type, description.trim());
   }
 </script>
 
-<Modal {open} title="Tambah Link Tree" onClose={close}>
-  <form class="space-y-4" onsubmit={handleSubmit} novalidate>
-    <div>
-      <label class={labelClass} for="add-title">Judul</label>
-      <input id="add-title" type="text" class={inputClass} bind:value={$title} />
-    </div>
-    <div>
-      <label class={labelClass} for="add-type">Jenis</label>
-      <select id="add-type" class={inputClass} bind:value={$type}>
-        <option value="public">Publik</option>
-        <option value="unlisted">Tidak Terdaftar</option>
-        <option value="private">Privat</option>
-      </select>
-    </div>
-    <div>
-      <label class={labelClass} for="add-description">Deskripsi</label>
-      <textarea id="add-description" rows="3" class={inputClass} bind:value={$description}></textarea>
-    </div>
+{#if show}
+  <div
+    data-testid="add-link-tree-modal"
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50"
+  >
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="add-link-tree-heading"
+      class="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
+    >
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+        <div>
+          <h2 id="add-link-tree-heading" class="text-base font-bold text-slate-900">
+            Tambah Link Tree Baru
+          </h2>
+          <p class="text-xs text-slate-700">Buat halaman kumpulan tautan baru.</p>
+        </div>
+        <button
+          type="button"
+          data-testid="close-add-modal-btn"
+          on:click={handleClose}
+          aria-label="Tutup modal tambah link tree"
+          class="p-2 rounded-xl text-slate-700 hover:bg-slate-200 transition-colors"
+        >
+          <X size={20} />
+        </button>
+      </div>
 
-    {#if errorText}
-      <p class="text-sm text-rose-600" role="alert">{errorText}</p>
-    {/if}
+      <form on:submit|preventDefault={handleSave} class="p-6 space-y-4">
+        <div>
+          <label for="add-link-tree-title-input" class="block text-sm font-semibold text-slate-800 mb-1.5">
+            Judul
+          </label>
+          <input
+            id="add-link-tree-title-input"
+            type="text"
+            data-testid="add-link-tree-title-input"
+            bind:value={title}
+            placeholder="Contoh: Kursus Favorit Saya"
+            class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-600 text-sm"
+            required
+          />
+        </div>
 
-    <div class="flex justify-end gap-2">
-      <button type="button" class={secondaryButton} onclick={close}>Batal</button>
-      <button type="submit" class={primaryButton} disabled={$isAdding}>
-        {$isAdding ? "Menyimpan..." : "Simpan"}
-      </button>
+        <div>
+          <label for="add-link-tree-type-select" class="block text-sm font-semibold text-slate-800 mb-1.5">
+            Tipe
+          </label>
+          <select
+            id="add-link-tree-type-select"
+            data-testid="add-link-tree-type-select"
+            bind:value={type}
+            class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-600 text-sm"
+          >
+            <option value="public">Publik</option>
+            <option value="unlisted">Tidak Terdaftar</option>
+            <option value="private">Privat</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="add-link-tree-description-input" class="block text-sm font-semibold text-slate-800 mb-1.5">
+            Deskripsi
+          </label>
+          <textarea
+            id="add-link-tree-description-input"
+            data-testid="add-link-tree-description-input"
+            bind:value={description}
+            rows="4"
+            placeholder="Jelaskan isi kumpulan tautan ini"
+            class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-600 text-sm"
+            required
+          ></textarea>
+        </div>
+
+        <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
+          <button
+            type="button"
+            data-testid="cancel-add-modal-btn"
+            on:click={handleClose}
+            disabled={loading}
+            class="px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            data-testid="submit-add-modal-btn"
+            disabled={loading}
+            class="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors disabled:opacity-60"
+          >
+            {#if loading}
+              <LoaderCircle size={18} class="animate-spin" />
+              <span>Menyimpan...</span>
+            {:else}
+              <Plus size={18} strokeWidth={2.5} />
+              <span>Tambah Link Tree</span>
+            {/if}
+          </button>
+        </div>
+      </form>
     </div>
-  </form>
-</Modal>
+  </div>
+{/if}

@@ -1,89 +1,140 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
-
-vi.mock("../states/linkTreesStore.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  changeCover: vi.fn(),
-}));
-vi.mock("../../../helpers/toolsHelper.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  showSuccessDialog: vi.fn(),
-  showErrorDialog: vi.fn(),
-}));
-
 import ChangeCoverModal from "./ChangeCoverModal.svelte";
-import { changeCover, isChangingCover } from "../states/linkTreesStore.js";
-import { showSuccessDialog, showErrorDialog } from "../../../helpers/toolsHelper.js";
+import { renderWithProviders } from "../../../test-utils";
+import * as toolsHelper from "../../../helpers/toolsHelper";
 
-const pick = (file) => fireEvent.change(screen.getByLabelText("Gambar cover"), { target: { files: [file] } });
-const submit = () => screen.getByRole("button", { name: "Unggah" }).click();
-const image = () => new File(["x"], "c.png", { type: "image/png" });
+const wait = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 
-beforeEach(() => {
-  vi.resetAllMocks();
-  isChangingCover.set(false);
-});
+function setFiles(input, files) {
+  Object.defineProperty(input.element, "files", { value: files, configurable: true });
+}
 
 describe("ChangeCoverModal", () => {
-  it("tidak tampil saat tertutup", () => {
-    render(ChangeCoverModal, { props: { open: false, linkTreeId: 5, onClose: vi.fn() } });
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  const mockLinkTree = { id: 1, title: "Link Tree Test" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    global.URL.createObjectURL = vi.fn().mockReturnValue("blob:mock-url");
   });
 
-  it("menolak unggah tanpa berkas", async () => {
-    render(ChangeCoverModal, { props: { open: true, linkTreeId: 5, onClose: vi.fn() } });
-    submit();
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("Pilih gambar cover terlebih dahulu.")
-    );
-    expect(changeCover).not.toHaveBeenCalled();
+  it("should not render when show is false or link tree is missing", () => {
+    const hidden = renderWithProviders(ChangeCoverModal, {
+      props: { show: false, linkTree: mockLinkTree },
+    });
+    expect(hidden.wrapper.find('[data-testid="change-cover-modal"]').exists()).toBe(false);
+
+    const missing = renderWithProviders(ChangeCoverModal, { props: { show: true } });
+    expect(missing.wrapper.find('[data-testid="change-cover-modal"]').exists()).toBe(false);
   });
 
-  it("menolak berkas yang bukan gambar", async () => {
-    render(ChangeCoverModal, { props: { open: true, linkTreeId: 5, onClose: vi.fn() } });
-    await pick(new File(["x"], "a.txt", { type: "text/plain" }));
-    submit();
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("Berkas harus berupa gambar.")
-    );
+  it("should link the file label to the file input", () => {
+    const { wrapper } = renderWithProviders(ChangeCoverModal, {
+      props: { show: true, linkTree: mockLinkTree },
+    });
+
+    expect(wrapper.find('label[for="cover-file-input"]').exists()).toBe(true);
+    expect(wrapper.find("#cover-file-input").exists()).toBe(true);
   });
 
-  it("menampilkan nama berkas, mengunggah, lalu menutup", async () => {
-    changeCover.mockResolvedValue({ ok: true, message: "Cover diubah" });
-    const onClose = vi.fn();
-    render(ChangeCoverModal, { props: { open: true, linkTreeId: 5, onClose } });
+  it("should validate file presence, file type and file size", async () => {
+    const errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
+    const { wrapper } = renderWithProviders(ChangeCoverModal, {
+      props: { show: true, linkTree: mockLinkTree },
+    });
 
-    expect(screen.queryByText(/Dipilih:/)).not.toBeInTheDocument();
-    const file = image();
-    await pick(file);
-    expect(screen.getByText("Dipilih: c.png")).toBeInTheDocument();
+    await wrapper.find("form").trigger("submit");
+    expect(errorSpy).toHaveBeenCalledWith("Silakan pilih cover baru!");
 
-    submit();
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(changeCover).toHaveBeenCalledWith(5, file);
-    expect(showSuccessDialog).toHaveBeenCalledWith("Cover diubah");
+    const fileInput = wrapper.find('[data-testid="cover-file-input"]');
+    setFiles(fileInput, undefined);
+    await fileInput.trigger("change");
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+
+    setFiles(fileInput, [new File(["dummy"], "doc.pdf", { type: "application/pdf" })]);
+    await fileInput.trigger("change");
+    expect(errorSpy).toHaveBeenCalledWith("Pilih file gambar (JPG/PNG)!");
+
+    setFiles(fileInput, [
+      new File([new Uint8Array(2 * 1024 * 1024)], "large.png", { type: "image/png" }),
+    ]);
+    await fileInput.trigger("change");
+    expect(errorSpy).toHaveBeenCalledWith("Ukuran gambar maksimal 1MB!");
   });
 
-  it("menampilkan dialog error saat gagal", async () => {
-    changeCover.mockResolvedValue({ ok: false, message: "Gagal unggah" });
-    const onClose = vi.fn();
-    render(ChangeCoverModal, { props: { open: true, linkTreeId: 5, onClose } });
-    await pick(image());
-    submit();
-    await waitFor(() => expect(showErrorDialog).toHaveBeenCalledWith("Gagal unggah"));
-    expect(onClose).not.toHaveBeenCalled();
+  it("should preview the image, upload it and close on success", async () => {
+    const closeSpy = vi.fn();
+    const { wrapper, linkTreesStore } = renderWithProviders(ChangeCoverModal, {
+      props: { show: true, linkTree: mockLinkTree, onClose: closeSpy },
+    });
+    const coverSpy = vi.spyOn(linkTreesStore, "asyncSetIsLinkTreeChangeCover").mockResolvedValue();
+    const detailSpy = vi.spyOn(linkTreesStore, "asyncSetLinkTree").mockResolvedValue();
+
+    const fileInput = wrapper.find('[data-testid="cover-file-input"]');
+    const validFile = new File(["dummy"], "photo.jpg", { type: "image/jpeg" });
+    setFiles(fileInput, [validFile]);
+    await fileInput.trigger("change");
+
+    expect(wrapper.find('img[alt="Pratinjau sampul baru"]').exists()).toBe(true);
+
+    await wrapper.find("form").trigger("submit");
+    expect(coverSpy).toHaveBeenCalledWith(1, validFile);
+    await wait();
+    expect(wrapper.text()).toContain("Mengunggah...");
+
+    linkTreesStore.setIsLinkTreeChangedCover(true);
+    linkTreesStore.setIsLinkTreeChangeCover(true);
+    await wait();
+
+    expect(detailSpy).toHaveBeenCalledWith(1);
+    expect(closeSpy).toHaveBeenCalled();
   });
 
-  it("menutup lewat tombol Batal", () => {
-    const onClose = vi.fn();
-    render(ChangeCoverModal, { props: { open: true, linkTreeId: 5, onClose } });
-    screen.getByRole("button", { name: "Batal" }).click();
-    expect(onClose).toHaveBeenCalledTimes(1);
+  it("should succeed without onClose callback", async () => {
+    const { linkTreesStore } = renderWithProviders(ChangeCoverModal, {
+      props: { show: true, linkTree: mockLinkTree },
+    });
+    const detailSpy = vi.spyOn(linkTreesStore, "asyncSetLinkTree").mockResolvedValue();
+
+    linkTreesStore.setIsLinkTreeChangedCover(true);
+    linkTreesStore.setIsLinkTreeChangeCover(true);
+    await wait();
+
+    expect(detailSpy).toHaveBeenCalled();
   });
 
-  it("menampilkan status mengunggah", () => {
-    isChangingCover.set(true);
-    render(ChangeCoverModal, { props: { open: true, linkTreeId: 5, onClose: vi.fn() } });
-    expect(screen.getByRole("button", { name: "Mengunggah..." })).toBeDisabled();
+  it("should stay open when the upload failed", async () => {
+    const closeSpy = vi.fn();
+    const { wrapper, linkTreesStore } = renderWithProviders(ChangeCoverModal, {
+      props: { show: true, linkTree: mockLinkTree, onClose: closeSpy },
+    });
+
+    linkTreesStore.setIsLinkTreeChangedCover(false);
+    linkTreesStore.setIsLinkTreeChangeCover(true);
+    await wait();
+
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="change-cover-modal"]').exists()).toBe(true);
+  });
+
+  it("should trigger onClose when close or cancel button clicked", async () => {
+    const closeSpy = vi.fn();
+    const { wrapper } = renderWithProviders(ChangeCoverModal, {
+      props: { show: true, linkTree: mockLinkTree, onClose: closeSpy },
+    });
+
+    await wrapper.find('[data-testid="close-cover-modal-btn"]').trigger("click");
+    await wrapper.find('[data-testid="cancel-cover-modal-btn"]').trigger("click");
+
+    expect(closeSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("should handle close without onClose callback", async () => {
+    const { wrapper } = renderWithProviders(ChangeCoverModal, {
+      props: { show: true, linkTree: mockLinkTree },
+    });
+
+    await wrapper.find('[data-testid="close-cover-modal-btn"]').trigger("click");
+
+    expect(wrapper.exists()).toBe(true);
   });
 });

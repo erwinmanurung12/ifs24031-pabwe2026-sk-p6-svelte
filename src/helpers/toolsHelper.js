@@ -1,59 +1,70 @@
 import Swal from "sweetalert2";
 
-const baseOptions = {
-  confirmButtonColor: "#4f46e5",
-  cancelButtonColor: "#64748b",
-};
-
-export function showSuccessDialog(message, title = "Berhasil") {
-  return Swal.fire({ ...baseOptions, icon: "success", title, text: message });
-}
-
-export function showErrorDialog(message, title = "Gagal") {
-  return Swal.fire({ ...baseOptions, icon: "error", title, text: message });
-}
-
-export function showWarningDialog(message, title = "Perhatian") {
-  return Swal.fire({ ...baseOptions, icon: "warning", title, text: message });
-}
-
-export async function showConfirmDialog(
-  message,
-  { title = "Apakah Anda yakin?", confirmText = "Ya", cancelText = "Batal" } = {}
-) {
-  const result = await Swal.fire({
-    ...baseOptions,
-    icon: "warning",
-    title,
+export function showErrorDialog(message) {
+  return Swal.fire({
+    title: "Terjadi Kesalahan",
     text: message,
-    showCancelButton: true,
-    confirmButtonText: confirmText,
-    cancelButtonText: cancelText,
-    reverseButtons: true,
+    icon: "error",
+    confirmButtonText: "Tutup",
+    confirmButtonColor: "#ef4444",
+  }).then((result) => {
+    if (result.isConfirmed) {
+      Swal.close();
+    }
+    return result;
   });
-  return result.isConfirmed;
 }
 
-export function formatDate(value) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+export function showWarningDialog(message) {
+  return Swal.fire({
+    title: "Peringatan",
+    text: message,
+    icon: "warning",
+    confirmButtonText: "Tutup",
+    confirmButtonColor: "#f59e0b",
+  }).then((result) => {
+    if (result.isConfirmed) {
+      Swal.close();
+    }
+    return result;
+  });
 }
 
-export function hasCoverImage(cover) {
-  return Boolean(cover) && !cover.endsWith("/");
+export function showSuccessDialog(message) {
+  return Swal.fire({
+    title: "Tindakan Berhasil",
+    text: message,
+    icon: "success",
+    confirmButtonText: "Tutup",
+    confirmButtonColor: "#10b981",
+  }).then((result) => {
+    if (result.isConfirmed) {
+      Swal.close();
+    }
+    return result;
+  });
 }
 
-export function isValidEmail(value) {
-  return /^\S+@\S+\.\S+$/.test(value);
+export function showConfirmDialog(message) {
+  return Swal.fire({
+    title: "Konfirmasi",
+    text: message,
+    icon: "question",
+    showCancelButton: true,
+    confirmButtonText: "Ya",
+    cancelButtonText: "Tidak",
+    confirmButtonColor: "#6366f1",
+    cancelButtonColor: "#94a3b8",
+  });
 }
 
-export function isValidHttpUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
+export function formatDate(date) {
+  if (!date) return "-";
+  return new Date(date).toLocaleString("id-ID", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }

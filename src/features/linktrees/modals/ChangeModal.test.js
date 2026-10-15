@@ -1,91 +1,146 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
-
-vi.mock("../states/linkTreesStore.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  changeLinkTree: vi.fn(),
-}));
-vi.mock("../../../helpers/toolsHelper.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  showSuccessDialog: vi.fn(),
-  showErrorDialog: vi.fn(),
-}));
-
 import ChangeModal from "./ChangeModal.svelte";
-import { changeLinkTree, isChanging } from "../states/linkTreesStore.js";
-import { showSuccessDialog, showErrorDialog } from "../../../helpers/toolsHelper.js";
+import { renderWithProviders } from "../../../test-utils";
+import * as toolsHelper from "../../../helpers/toolsHelper";
 
-const linkTree = { id: 5, title: "Lama", type: "unlisted", description: "Deskripsi lama" };
-const submit = () => screen.getByRole("button", { name: "Simpan perubahan" }).click();
-
-beforeEach(() => {
-  vi.resetAllMocks();
-  isChanging.set(false);
-});
+const wait = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 
 describe("ChangeModal", () => {
-  it("tidak tampil saat tertutup", () => {
-    render(ChangeModal, { props: { open: false, linkTree, onClose: vi.fn() } });
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  const mockLinkTree = {
+    id: 1,
+    title: "Judul Awal",
+    type: "unlisted",
+    description: "Deskripsi Awal",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it("mengisi formulir dari data saat dibuka", async () => {
-    const onClose = vi.fn();
-    const { rerender } = render(ChangeModal, { props: { open: false, linkTree, onClose } });
-    await rerender({ open: true, linkTree, onClose });
-
-    await waitFor(() => expect(screen.getByLabelText("Judul")).toHaveValue("Lama"));
-    expect(screen.getByLabelText("Jenis")).toHaveValue("unlisted");
-    expect(screen.getByLabelText("Deskripsi")).toHaveValue("Deskripsi lama");
-  });
-
-  it("menolak judul kosong", async () => {
-    render(ChangeModal, { props: { open: true, linkTree, onClose: vi.fn() } });
-    await fireEvent.input(screen.getByLabelText("Judul"), { target: { value: "  " } });
-    submit();
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("Judul dan deskripsi wajib diisi.")
-    );
-    expect(changeLinkTree).not.toHaveBeenCalled();
-  });
-
-  it("menyimpan perubahan lalu menutup", async () => {
-    changeLinkTree.mockResolvedValue({ ok: true, message: "Diubah" });
-    const onClose = vi.fn();
-    render(ChangeModal, { props: { open: true, linkTree, onClose } });
-
-    await fireEvent.input(screen.getByLabelText("Judul"), { target: { value: " Baru " } });
-    await fireEvent.change(screen.getByLabelText("Jenis"), { target: { value: "public" } });
-    submit();
-
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(changeLinkTree).toHaveBeenCalledWith(5, {
-      title: "Baru",
-      type: "public",
-      description: "Deskripsi lama",
+  it("should not render when show is false or link tree is missing", () => {
+    const hidden = renderWithProviders(ChangeModal, {
+      props: { show: false, linkTree: mockLinkTree },
     });
-    expect(showSuccessDialog).toHaveBeenCalledWith("Diubah");
+    expect(hidden.wrapper.find('[data-testid="change-link-tree-modal"]').exists()).toBe(false);
+
+    const missing = renderWithProviders(ChangeModal, { props: { show: true } });
+    expect(missing.wrapper.find('[data-testid="change-link-tree-modal"]').exists()).toBe(false);
   });
 
-  it("menampilkan dialog error saat gagal", async () => {
-    changeLinkTree.mockResolvedValue({ ok: false, message: "Gagal ubah" });
-    const onClose = vi.fn();
-    render(ChangeModal, { props: { open: true, linkTree, onClose } });
-    submit();
-    await waitFor(() => expect(showErrorDialog).toHaveBeenCalledWith("Gagal ubah"));
-    expect(onClose).not.toHaveBeenCalled();
+  it("should populate inputs from the link tree", () => {
+    const { wrapper } = renderWithProviders(ChangeModal, {
+      props: { show: true, linkTree: mockLinkTree },
+    });
+
+    expect(wrapper.find('[data-testid="change-link-tree-title-input"]').element.value).toBe(
+      "Judul Awal"
+    );
+    expect(wrapper.find('[data-testid="change-link-tree-type-select"]').element.value).toBe(
+      "unlisted"
+    );
+    expect(wrapper.find('[data-testid="change-link-tree-description-input"]').element.value).toBe(
+      "Deskripsi Awal"
+    );
+    expect(wrapper.find('label[for="change-link-tree-title-input"]').exists()).toBe(true);
+    expect(wrapper.find('label[for="change-link-tree-type-select"]').exists()).toBe(true);
+    expect(wrapper.find('label[for="change-link-tree-description-input"]').exists()).toBe(true);
   });
 
-  it("menutup lewat tombol Batal", () => {
-    const onClose = vi.fn();
-    render(ChangeModal, { props: { open: true, linkTree, onClose } });
-    screen.getByRole("button", { name: "Batal" }).click();
-    expect(onClose).toHaveBeenCalledTimes(1);
+  it("should fall back to empty description when it is null", () => {
+    const { wrapper } = renderWithProviders(ChangeModal, {
+      props: { show: true, linkTree: { ...mockLinkTree, description: null } },
+    });
+
+    expect(wrapper.find('[data-testid="change-link-tree-description-input"]').element.value).toBe(
+      ""
+    );
   });
 
-  it("menampilkan status menyimpan", () => {
-    isChanging.set(true);
-    render(ChangeModal, { props: { open: true, linkTree, onClose: vi.fn() } });
-    expect(screen.getByRole("button", { name: "Menyimpan..." })).toBeDisabled();
+  it("should validate empty title and empty description", async () => {
+    const errorSpy = vi.spyOn(toolsHelper, "showErrorDialog").mockImplementation(() => {});
+    const { wrapper } = renderWithProviders(ChangeModal, {
+      props: { show: true, linkTree: mockLinkTree },
+    });
+
+    await wrapper.find('[data-testid="change-link-tree-title-input"]').setValue("   ");
+    await wrapper.find("form").trigger("submit");
+    expect(errorSpy).toHaveBeenCalledWith("Judul tidak boleh kosong");
+
+    await wrapper.find('[data-testid="change-link-tree-title-input"]').setValue("Valid");
+    await wrapper.find('[data-testid="change-link-tree-description-input"]').setValue("  ");
+    await wrapper.find("form").trigger("submit");
+    expect(errorSpy).toHaveBeenCalledWith("Deskripsi tidak boleh kosong");
+  });
+
+  it("should submit changes, reload the detail and close on success", async () => {
+    const closeSpy = vi.fn();
+    const { wrapper, linkTreesStore } = renderWithProviders(ChangeModal, {
+      props: { show: true, linkTree: mockLinkTree, onClose: closeSpy },
+    });
+    const changeSpy = vi.spyOn(linkTreesStore, "asyncSetIsLinkTreeChange").mockResolvedValue();
+    const detailSpy = vi.spyOn(linkTreesStore, "asyncSetLinkTree").mockResolvedValue();
+
+    await wrapper.find('[data-testid="change-link-tree-type-select"]').setValue("private");
+    await wrapper.find("form").trigger("submit");
+    await wait();
+
+    expect(changeSpy).toHaveBeenCalledWith(1, "Judul Awal", "private", "Deskripsi Awal");
+    expect(wrapper.text()).toContain("Menyimpan...");
+
+    linkTreesStore.setIsLinkTreeChanged(true);
+    linkTreesStore.setIsLinkTreeChange(true);
+    await wait();
+
+    expect(detailSpy).toHaveBeenCalledWith(1);
+    expect(closeSpy).toHaveBeenCalled();
+  });
+
+  it("should succeed without onClose callback", async () => {
+    const { linkTreesStore } = renderWithProviders(ChangeModal, {
+      props: { show: true, linkTree: mockLinkTree },
+    });
+    const detailSpy = vi.spyOn(linkTreesStore, "asyncSetLinkTree").mockResolvedValue();
+
+    linkTreesStore.setIsLinkTreeChanged(true);
+    linkTreesStore.setIsLinkTreeChange(true);
+    await wait();
+
+    expect(detailSpy).toHaveBeenCalled();
+  });
+
+  it("should stay open when the change request failed", async () => {
+    const closeSpy = vi.fn();
+    const { linkTreesStore } = renderWithProviders(ChangeModal, {
+      props: { show: true, linkTree: mockLinkTree, onClose: closeSpy },
+    });
+
+    linkTreesStore.setIsLinkTreeChanged(false);
+    linkTreesStore.setIsLinkTreeChange(true);
+    await wait();
+
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(linkTreesStore.isLinkTreeChange).toBe(false);
+  });
+
+  it("should close when close or cancel button clicked", async () => {
+    const closeSpy = vi.fn();
+    const { wrapper } = renderWithProviders(ChangeModal, {
+      props: { show: true, linkTree: mockLinkTree, onClose: closeSpy },
+    });
+
+    await wrapper.find('[data-testid="close-change-modal-btn"]').trigger("click");
+    await wrapper.find('[data-testid="cancel-change-modal-btn"]').trigger("click");
+
+    expect(closeSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("should handle close without onClose callback", async () => {
+    const { wrapper } = renderWithProviders(ChangeModal, {
+      props: { show: true, linkTree: mockLinkTree },
+    });
+
+    await wrapper.find('[data-testid="close-change-modal-btn"]').trigger("click");
+
+    expect(wrapper.exists()).toBe(true);
   });
 });
